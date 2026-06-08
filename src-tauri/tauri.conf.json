@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "chelou-track",
+  "version": "0.1.0",
+  "identifier": "com.chelou.track",
+  "build": {
+    "beforeDevCommand": "vite",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "vite build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Chelou Track",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"]
+  }
+}
