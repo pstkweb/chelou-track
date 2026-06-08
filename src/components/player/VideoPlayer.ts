@@ -1,7 +1,7 @@
 // Video player backed by stream:// — falls back to transcoded (getvideolink) on decode error.
 // cf. ARCHITECTURE.md §4 (fallback transcodé) et §11.
-import { videoUrl } from '../../lib/stream';
-import type { FileRef } from '../../types/model';
+import { videoUrl } from "../../lib/stream";
+import type { FileRef } from "../../types/model";
 
 export class VideoPlayer {
   private readonly video: HTMLVideoElement;
@@ -11,10 +11,10 @@ export class VideoPlayer {
   onError: ((fileId: number) => void) | null = null;
 
   constructor(container: HTMLElement) {
-    this.video = document.createElement('video');
+    this.video = document.createElement("video");
     this.video.controls = true;
-    this.video.style.width = '100%';
-    this.video.addEventListener('error', () => this.handleDecodeError());
+    this.video.style.width = "100%";
+    this.video.addEventListener("error", () => this.handleDecodeError());
     container.appendChild(this.video);
   }
 
@@ -33,8 +33,16 @@ export class VideoPlayer {
     this.onError?.(this.currentFileId);
   }
 
-  play(): void { void this.video.play(); }
-  pause(): void { this.video.pause(); }
-  get currentTime(): number { return this.video.currentTime; }
-  set currentTime(t: number) { this.video.currentTime = t; }
+  play(): void {
+    void this.video.play();
+  }
+  pause(): void {
+    this.video.pause();
+  }
+  get currentTime(): number {
+    return this.video.currentTime;
+  }
+  set currentTime(t: number) {
+    this.video.currentTime = t;
+  }
 }

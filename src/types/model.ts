@@ -4,7 +4,7 @@
 export interface Method {
   id: string;
   title: string;
-  source: { provider: 'pcloud'; rootFolderId: number };
+  source: { provider: "pcloud"; rootFolderId: number };
   defaultCountInBars: number;
   lessons: Lesson[];
   documents: DocumentRef[];
@@ -22,25 +22,25 @@ export interface Lesson {
 export interface TabSet {
   id: string;
   title: string;
-  gp?: FileRef;   // priority
-  gpx?: FileRef;  // fallback
+  gp?: FileRef; // priority
+  gpx?: FileRef; // fallback
 }
 
 export interface BackingGroup {
-  label: string;          // e.g. "partie distorsion"
+  label: string; // e.g. "partie distorsion"
   tracks: BackingTrack[]; // sorted by bpm
 }
 
 export interface BackingTrack {
   audio: FileRef;
   bpm: number;
-  leadInMsOverride?: number;  // if absent, derived from bpm + beatsPerBar + defaultCountInBars
-  syncPoints?: SyncPoint[];   // for exceptional variable-tempo tracks
+  leadInMsOverride?: number; // if absent, derived from bpm + beatsPerBar + defaultCountInBars
+  syncPoints?: SyncPoint[]; // for exceptional variable-tempo tracks
 }
 
 export interface DocumentRef {
   file: FileRef;
-  kind: 'pdf' | 'image';
+  kind: "pdf" | "image";
   title: string;
 }
 

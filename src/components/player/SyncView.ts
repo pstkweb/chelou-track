@@ -6,14 +6,24 @@
 //  - api.player.output cast to IExternalMediaSynthOutput to set the handler
 //  - api.tickPosition = tick  ← drives the cursor (bypasses score BPM, uses backing BPM)
 //  - Do NOT use output.updatePosition(ms): would convert with score BPM, wrong for slow versions
-import type {
-  IExternalMediaHandler,
-  IExternalMediaSynthOutput,
-} from '@coderline/alphatab';
-import * as alphaTab from '@coderline/alphatab';
+import * as alphaTab from "@coderline/alphatab";
 
-import { audioUrl, tabUrl } from '../../lib/stream';
-import type { BackingTrack, TabSet } from '../../types/model';
+// IExternalMediaHandler and IExternalMediaSynthOutput are declared but not exported by
+// @coderline/alphatab — define the minimal shapes we need locally.
+interface IExternalMediaHandler {
+  readonly backingTrackDuration: number;
+  playbackRate: number;
+  masterVolume: number;
+  seekTo(timeMs: number): void;
+  play(): void;
+  pause(): void;
+}
+interface IExternalMediaSynthOutput {
+  handler: IExternalMediaHandler | null;
+}
+
+import { audioUrl, tabUrl } from "../../lib/stream";
+import type { BackingTrack, TabSet } from "../../types/model";
 
 // Standard MIDI ticks per quarter note used by AlphaTab.
 const TICKS_PER_BEAT = 960;
@@ -40,11 +50,19 @@ class AudioHandler implements IExternalMediaHandler {
     return this.buffer.duration * 1000;
   }
 
-  get playbackRate(): number { return this.sourceNode?.playbackRate.value ?? 1; }
-  set playbackRate(v: number) { if (this.sourceNode) this.sourceNode.playbackRate.value = v; }
+  get playbackRate(): number {
+    return this.sourceNode?.playbackRate.value ?? 1;
+  }
+  set playbackRate(v: number) {
+    if (this.sourceNode) this.sourceNode.playbackRate.value = v;
+  }
 
-  get masterVolume(): number { return 1; /* TODO: wire GainNode */ }
-  set masterVolume(_v: number) { /* TODO: wire GainNode */ }
+  get masterVolume(): number {
+    return 1; /* TODO: wire GainNode */
+  }
+  set masterVolume(_v: number) {
+    /* TODO: wire GainNode */
+  }
 
   play(): void {
     this._startFrom(this.playOffset);
@@ -78,7 +96,11 @@ class AudioHandler implements IExternalMediaHandler {
   }
 
   private _stopSource(): void {
-    try { this.sourceNode?.stop(); } catch { /* already stopped */ }
+    try {
+      this.sourceNode?.stop();
+    } catch {
+      /* already stopped */
+    }
     this.sourceNode = null;
   }
 }
@@ -97,18 +119,22 @@ export class SyncView {
 
   private rafId: number | null = null;
 
-  constructor(private readonly container: HTMLElement) {}
+  private readonly container: HTMLElement;
+
+  constructor(container: HTMLElement) {
+    this.container = container;
+  }
 
   /** Load a GuitarPro file into AlphaTab. Call once per lesson. */
   async loadTab(tab: TabSet): Promise<void> {
     const fileId = tab.gp?.fileId ?? tab.gpx?.fileId;
-    if (fileId === undefined) throw new Error('TabSet has no .gp / .gpx');
+    if (fileId === undefined) throw new Error("TabSet has no .gp / .gpx");
 
     this.stop();
     this.api?.destroy();
 
-    this.container.innerHTML = '';
-    const el = document.createElement('div');
+    this.container.innerHTML = "";
+    const el = document.createElement("div");
     this.container.appendChild(el);
 
     this.api = new alphaTab.AlphaTabApi(el, {
@@ -120,9 +146,9 @@ export class SyncView {
 
     // Wire the handler once the player is ready.
     this.api.playerReady.on(() => {
-      const player = this.api!.player;
+      const player = this.api?.player;
       if (player && this.handler) {
-        (player.output as IExternalMediaSynthOutput).handler = this.handler;
+        (player.output as unknown as IExternalMediaSynthOutput).handler = this.handler;
       }
     });
 
@@ -135,7 +161,7 @@ export class SyncView {
     // Fetch the tab bytes and hand them to AlphaTab.
     const resp = await fetch(tabUrl(fileId));
     const bytes = await resp.arrayBuffer();
-    this.api.loadArray(new Uint8Array(bytes));
+    this.api.load(new Uint8Array(bytes));
   }
 
   /** Load a backing WAV. Call after loadTab, before play(). */
@@ -153,12 +179,12 @@ export class SyncView {
     // Wire handler if playerReady already fired.
     const player = this.api?.player;
     if (player) {
-      (player.output as IExternalMediaSynthOutput).handler = this.handler;
+      (player.output as unknown as IExternalMediaSynthOutput).handler = this.handler;
     }
 
     // leadInMs = countInBars × beatsPerBar × 60000 / trackBpm  (cf. §7)
-    this.leadInMs = track.leadInMsOverride
-      ?? (defaultCountInBars * this.beatsPerBar * 60_000 / this.trackBpm);
+    this.leadInMs =
+      track.leadInMsOverride ?? (defaultCountInBars * this.beatsPerBar * 60_000) / this.trackBpm;
   }
 
   /** Start playback. AlphaTab calls handler.play() internally. */
@@ -172,7 +198,10 @@ export class SyncView {
   stop(): void {
     this.api?.stop();
     this.handler?.pause();
-    if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
   }
 
   private startSyncLoop(): void {
@@ -181,7 +210,7 @@ export class SyncView {
       const audioMs = this.handler.currentPositionSeconds() * 1000;
 
       // During count-in (audioMs < leadInMs) the cursor stays at tick 0 (§7).
-      const beatsElapsed = Math.max(0, (audioMs - this.leadInMs) / 60_000 * this.trackBpm);
+      const beatsElapsed = Math.max(0, ((audioMs - this.leadInMs) / 60_000) * this.trackBpm);
       const tick = Math.floor(beatsElapsed * TICKS_PER_BEAT);
 
       // Drive AlphaTab cursor with backing-track BPM — bypasses score BPM (correct for slow versions).

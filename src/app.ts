@@ -1,20 +1,28 @@
-import { Catalogue } from './components/catalogue/Catalogue';
-import { VideoPlayer } from './components/player/VideoPlayer';
-import { SyncView } from './components/player/SyncView';
-import { DocViewer } from './components/documents/DocViewer';
-import type { Lesson, Method } from './types/model';
+import { Catalogue } from "./components/catalogue/Catalogue";
+import { DocViewer } from "./components/documents/DocViewer";
+import { SyncView } from "./components/player/SyncView";
+import { VideoPlayer } from "./components/player/VideoPlayer";
+import type { Lesson, Method } from "./types/model";
+
+function getElement(id: string): HTMLElement {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Element #${id} not found`);
+  return el;
+}
 
 export class App {
   private readonly catalogue: Catalogue;
   private readonly videoPlayer: VideoPlayer;
   private readonly syncView: SyncView;
+  // @ts-expect-error TS6133 -- wired in #36 (DocViewer)
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: wired in #36
   private readonly docViewer: DocViewer;
 
   constructor() {
-    this.catalogue   = new Catalogue(document.getElementById('catalogue')!);
-    this.videoPlayer = new VideoPlayer(document.getElementById('video-player')!);
-    this.syncView    = new SyncView(document.getElementById('sync-view')!);
-    this.docViewer   = new DocViewer(document.getElementById('doc-viewer')!);
+    this.catalogue = new Catalogue(getElement("catalogue"));
+    this.videoPlayer = new VideoPlayer(getElement("video-player"));
+    this.syncView = new SyncView(getElement("sync-view"));
+    this.docViewer = new DocViewer(getElement("doc-viewer"));
 
     this.catalogue.onLessonSelect = (lesson, method) => this.openLesson(lesson, method);
   }

@@ -4,3 +4,4 @@ src-tauri/target/
 src-tauri/WixTools/
 *.log
 .DS_Store
+.vscode/
