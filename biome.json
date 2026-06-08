@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!!.pnp.loader.mjs"]
+    "includes": ["**", "!!**/dist", "!!.pnp.loader.mjs", "!!src-tauri"]
   },
   "formatter": {
     "enabled": true,

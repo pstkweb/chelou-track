@@ -38,7 +38,9 @@ pub struct Lesson {
 pub struct TabSet {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gp: Option<FileRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gpx: Option<FileRef>,
 }
 
@@ -84,6 +86,105 @@ pub struct SyncPoint {
     #[serde(rename = "audioMs")]
     pub audio_ms: f64,
     pub tick: u32,
+}
+
+// --- Tests ---
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_method() -> Method {
+        Method {
+            id: "test-method".into(),
+            title: "Test Method".into(),
+            source: MethodSource {
+                provider: "pcloud".into(),
+                root_folder_id: 123456789,
+            },
+            default_count_in_bars: 1,
+            lessons: vec![Lesson {
+                id: "lesson-1".into(),
+                order: 0,
+                title: "Lesson 1".into(),
+                videos: vec![FileRef { file_id: 1, name: "video.mp4".into() }],
+                tabs: vec![TabSet {
+                    id: "tab-1".into(),
+                    title: "Tab 1".into(),
+                    gp: Some(FileRef { file_id: 2, name: "tab.gp".into() }),
+                    gpx: None,
+                }],
+                backing_groups: vec![BackingGroup {
+                    label: "partie distorsion".into(),
+                    tracks: vec![BackingTrack {
+                        audio: FileRef {
+                            file_id: 3,
+                            name: "Backing track partie distorsion (120bpm).wav".into(),
+                        },
+                        bpm: 120,
+                        lead_in_ms_override: None,
+                        sync_points: None,
+                    }],
+                }],
+            }],
+            documents: vec![DocumentRef {
+                file: FileRef { file_id: 4, name: "sheet.pdf".into() },
+                kind: DocKind::Pdf,
+                title: "Sheet".into(),
+            }],
+        }
+    }
+
+    /// Verifies that the JSON field names match what the TypeScript side expects.
+    /// Any change to serde attributes that breaks camelCase will fail here.
+    #[test]
+    fn serializes_camelcase_for_ts() {
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&sample_method()).unwrap()).unwrap();
+
+        // Top-level
+        assert!(v.get("defaultCountInBars").is_some(), "expected defaultCountInBars");
+        assert!(v.get("default_count_in_bars").is_none(), "snake_case must not leak");
+
+        // source
+        assert!(v["source"].get("rootFolderId").is_some(), "expected rootFolderId");
+
+        // lessons[0]
+        let l0 = &v["lessons"][0];
+        assert!(l0.get("backingGroups").is_some(), "expected backingGroups");
+        assert!(l0.get("backing_groups").is_none());
+
+        // tabs[0]: gp present, gpx absent (None + skip_serializing_if)
+        let tab0 = &l0["tabs"][0];
+        assert!(tab0.get("gp").is_some(), "expected gp");
+        assert!(tab0.get("gpx").is_none(), "gpx must be absent when None");
+
+        // audio.fileId
+        let track0 = &l0["backingGroups"][0]["tracks"][0];
+        assert!(track0["audio"].get("fileId").is_some(), "expected fileId");
+
+        // leadInMsOverride and syncPoints absent when None
+        assert!(track0.get("leadInMsOverride").is_none(), "leadInMsOverride must be absent when None");
+        assert!(track0.get("syncPoints").is_none(), "syncPoints must be absent when None");
+
+        // documents[0].kind serializes as lowercase string
+        assert_eq!(v["documents"][0]["kind"], "pdf");
+    }
+
+    /// Roundtrip: serialize then deserialize, values must be preserved.
+    #[test]
+    fn roundtrip() {
+        let original = sample_method();
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: Method = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, original.id);
+        assert_eq!(parsed.default_count_in_bars, 1);
+        assert_eq!(parsed.lessons.len(), 1);
+        assert_eq!(parsed.lessons[0].backing_groups[0].tracks[0].bpm, 120);
+        assert!(parsed.lessons[0].tabs[0].gp.is_some());
+        assert!(parsed.lessons[0].tabs[0].gpx.is_none());
+    }
 }
 
 // --- Persistence ---

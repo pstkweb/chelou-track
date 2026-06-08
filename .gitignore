@@ -5,3 +5,4 @@ src-tauri/WixTools/
 *.log
 .DS_Store
 .vscode/
+src-tauri/gen/
