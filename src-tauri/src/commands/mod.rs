@@ -3,14 +3,12 @@
 use std::sync::Mutex;
 use tauri::State;
 
-use crate::auth::AuthStore;
+use crate::auth::{AuthStore, StoredCredentials};
 use crate::manifest::{ManifestStore, Method};
 use crate::pcloud::PCloudClient;
 
 pub struct AppState {
     pub auth: Mutex<AuthStore>,
-    /// Constructed lazily when authenticated; None when logged out.
-    pub client: Mutex<Option<PCloudClient>>,
     pub manifest: ManifestStore,
 }
 
@@ -22,22 +20,34 @@ pub async fn pcloud_login(
     username: String,
     password: String,
 ) -> Result<(), String> {
-    let (token_str, uid) = PCloudClient::login(&username, &password)
+    let client =
+        PCloudClient::new(username.clone(), password.clone()).map_err(|e| e.to_string())?;
+
+    // Validate credentials with a real API call before storing them.
+    client
+        .list_folder(0)
         .await
+        .map_err(|e| format!("authentication failed: {e}"))?;
+
+    let creds = StoredCredentials { username, password };
+    state
+        .auth
+        .lock()
+        .unwrap()
+        .save_credentials(creds)
         .map_err(|e| e.to_string())?;
 
-    let auth_token = crate::auth::AuthToken { token: token_str.clone(), uid };
-
-    state.auth.lock().unwrap().save_token(auth_token).map_err(|e| e.to_string())?;
-    *state.client.lock().unwrap() = Some(PCloudClient::new(token_str));
     Ok(())
 }
 
 #[tauri::command]
 pub async fn pcloud_logout(state: State<'_, AppState>) -> Result<(), String> {
-    state.auth.lock().unwrap().clear().map_err(|e| e.to_string())?;
-    *state.client.lock().unwrap() = None;
-    Ok(())
+    state
+        .auth
+        .lock()
+        .unwrap()
+        .clear()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -58,28 +68,23 @@ pub async fn scan_method(
     root_folder_id: u64,
     title: String,
 ) -> Result<Method, String> {
-    let token = {
+    let (username, password) = {
         let auth = state.auth.lock().unwrap();
-        auth.token().map(|t| t.token.clone()).ok_or("not authenticated")?
+        let creds = auth.credentials().ok_or("not authenticated")?;
+        (creds.username.clone(), creds.password.clone())
     };
-    let client = PCloudClient::new(token);
+    let client = PCloudClient::new(username, password).map_err(|e| e.to_string())?;
     crate::pcloud::scanner::scan_tree(&client, root_folder_id, &title)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn save_method(
-    state: State<'_, AppState>,
-    method: Method,
-) -> Result<(), String> {
+pub async fn save_method(state: State<'_, AppState>, method: Method) -> Result<(), String> {
     state.manifest.save(&method).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn delete_method(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_method(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state.manifest.delete(&id).map_err(|e| e.to_string())
 }

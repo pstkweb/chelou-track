@@ -23,7 +23,6 @@ pub fn run() {
 
             app.manage(AppState {
                 auth: Mutex::new(auth),
-                client: Mutex::new(None),
                 manifest: manifest::ManifestStore::new(app_dir),
             });
             Ok(())

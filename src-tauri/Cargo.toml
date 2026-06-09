@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/manifest"]
+members = [".", "crates/manifest", "crates/pcloud"]
 resolver = "2"
 
 [package]
@@ -23,17 +23,15 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 chelou-manifest  = { path = "crates/manifest" }
+chelou-pcloud    = { path = "crates/pcloud" }
 tauri        = { version = "2", features = [] }
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 tokio        = { version = "1", features = ["full"] }
-reqwest      = { version = "0.12", features = ["json", "stream"] }
 keyring      = "3"
 anyhow       = "1"
 thiserror    = "1"
 log          = "0.4"
-uuid             = { version = "1", features = ["v4"] }
-async-recursion  = "1"
 
 [profile.dev]
 incremental = true

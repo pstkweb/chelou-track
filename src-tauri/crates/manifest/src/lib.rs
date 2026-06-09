@@ -101,7 +101,9 @@ impl ManifestStore {
 
     pub fn load_all(&self) -> Result<Vec<Method>> {
         let mut methods = Vec::new();
-        let Ok(entries) = std::fs::read_dir(&self.base_dir) else { return Ok(methods) };
+        let Ok(entries) = std::fs::read_dir(&self.base_dir) else {
+            return Ok(methods);
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
@@ -150,11 +152,17 @@ mod tests {
                 id: "lesson-1".into(),
                 order: 0,
                 title: "Lesson 1".into(),
-                videos: vec![FileRef { file_id: 1, name: "video.mp4".into() }],
+                videos: vec![FileRef {
+                    file_id: 1,
+                    name: "video.mp4".into(),
+                }],
                 tabs: vec![TabSet {
                     id: "tab-1".into(),
                     title: "Tab 1".into(),
-                    gp: Some(FileRef { file_id: 2, name: "tab.gp".into() }),
+                    gp: Some(FileRef {
+                        file_id: 2,
+                        name: "tab.gp".into(),
+                    }),
                     gpx: None,
                 }],
                 backing_groups: vec![BackingGroup {
@@ -171,7 +179,10 @@ mod tests {
                 }],
             }],
             documents: vec![DocumentRef {
-                file: FileRef { file_id: 4, name: "sheet.pdf".into() },
+                file: FileRef {
+                    file_id: 4,
+                    name: "sheet.pdf".into(),
+                },
                 kind: DocKind::Pdf,
                 title: "Sheet".into(),
             }],
@@ -185,9 +196,18 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&sample_method()).unwrap()).unwrap();
 
-        assert!(v.get("defaultCountInBars").is_some(), "expected defaultCountInBars");
-        assert!(v.get("default_count_in_bars").is_none(), "snake_case must not leak");
-        assert!(v["source"].get("rootFolderId").is_some(), "expected rootFolderId");
+        assert!(
+            v.get("defaultCountInBars").is_some(),
+            "expected defaultCountInBars"
+        );
+        assert!(
+            v.get("default_count_in_bars").is_none(),
+            "snake_case must not leak"
+        );
+        assert!(
+            v["source"].get("rootFolderId").is_some(),
+            "expected rootFolderId"
+        );
 
         let l0 = &v["lessons"][0];
         assert!(l0.get("backingGroups").is_some(), "expected backingGroups");
@@ -199,8 +219,14 @@ mod tests {
 
         let track0 = &l0["backingGroups"][0]["tracks"][0];
         assert!(track0["audio"].get("fileId").is_some(), "expected fileId");
-        assert!(track0.get("leadInMsOverride").is_none(), "leadInMsOverride must be absent when None");
-        assert!(track0.get("syncPoints").is_none(), "syncPoints must be absent when None");
+        assert!(
+            track0.get("leadInMsOverride").is_none(),
+            "leadInMsOverride must be absent when None"
+        );
+        assert!(
+            track0.get("syncPoints").is_none(),
+            "syncPoints must be absent when None"
+        );
 
         assert_eq!(v["documents"][0]["kind"], "pdf");
     }

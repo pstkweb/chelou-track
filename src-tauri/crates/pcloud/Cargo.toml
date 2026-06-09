@@ -1,0 +1,16 @@
+[package]
+name = "chelou-pcloud"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chelou-manifest  = { path = "../manifest" }
+pcloud           = "3.1.0"
+reqwest          = { version = "0.12", features = ["json", "stream"] }
+anyhow           = "1"
+async-recursion  = "1"
+uuid             = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+serde_json = "1"
+tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }

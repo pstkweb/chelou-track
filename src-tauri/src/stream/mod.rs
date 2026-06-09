@@ -39,20 +39,23 @@ async fn handle_inner<R: Runtime>(
     let req = parse_uri(&uri).ok_or_else(|| anyhow::anyhow!("invalid stream URI: {uri}"))?;
 
     let state = app.state::<AppState>();
-    let token = {
+    let (username, password) = {
         let auth = state.auth.lock().unwrap();
-        auth.token().map(|t| t.token.clone())
-            .ok_or_else(|| anyhow::anyhow!("not authenticated"))?
+        let creds = auth
+            .credentials()
+            .ok_or_else(|| anyhow::anyhow!("not authenticated"))?;
+        (creds.username.clone(), creds.password.clone())
     };
 
-    let client = crate::pcloud::PCloudClient::new(token);
+    let client = crate::pcloud::PCloudClient::new(username, password)
+        .map_err(|e| anyhow::anyhow!("failed to build client: {e}"))?;
 
     let pcloud_url = match (req.kind, req.transcoded) {
-        (StreamKind::Video, true)  => client.get_video_link(req.file_id).await?,
-        (StreamKind::Video, false) |
-        (StreamKind::Audio, _)     |
-        (StreamKind::Tab, _)       |
-        (StreamKind::Doc, _)       => client.get_file_link(req.file_id).await?,
+        (StreamKind::Video, true) => client.get_video_link(req.file_id).await?,
+        (StreamKind::Video, false)
+        | (StreamKind::Audio, _)
+        | (StreamKind::Tab, _)
+        | (StreamKind::Doc, _) => client.get_file_link(req.file_id).await?,
     };
 
     let range_header = request
@@ -61,33 +64,18 @@ async fn handle_inner<R: Runtime>(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_owned());
 
-    let pcloud_resp = client.fetch_range(&pcloud_url, range_header.as_deref()).await?;
-
-    let status = pcloud_resp.status().as_u16();
-    let content_type = pcloud_resp
-        .headers()
-        .get("Content-Type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_owned();
-    let content_range = pcloud_resp
-        .headers()
-        .get("Content-Range")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_owned());
-
-    let bytes = pcloud_resp.bytes().await?.to_vec();
+    let resp = client.fetch_range(&pcloud_url, range_header.as_deref()).await?;
 
     let mut builder = tauri::http::Response::builder()
-        .status(status)
-        .header("Content-Type", content_type)
+        .status(resp.status)
+        .header("Content-Type", resp.content_type)
         .header("Accept-Ranges", "bytes");
 
-    if let Some(cr) = content_range {
+    if let Some(cr) = resp.content_range {
         builder = builder.header("Content-Range", cr);
     }
 
-    Ok(builder.body(bytes)?)
+    Ok(builder.body(resp.body)?)
 }
 
 // --- URI parsing ---
@@ -117,9 +105,13 @@ fn parse_uri(uri: &str) -> Option<StreamRequest> {
     let kind = match kind_str {
         "video" => StreamKind::Video,
         "audio" => StreamKind::Audio,
-        "tab"   => StreamKind::Tab,
-        "doc"   => StreamKind::Doc,
-        _       => return None,
+        "tab" => StreamKind::Tab,
+        "doc" => StreamKind::Doc,
+        _ => return None,
     };
-    Some(StreamRequest { kind, file_id, transcoded })
+    Some(StreamRequest {
+        kind,
+        file_id,
+        transcoded,
+    })
 }

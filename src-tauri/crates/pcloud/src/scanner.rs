@@ -5,8 +5,8 @@ use async_recursion::async_recursion;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::{Entry, PCloudClient};
-use crate::manifest::{
+use crate::{Entry, PCloudClient};
+use chelou_manifest::{
     BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource,
     TabSet,
 };
@@ -51,7 +51,9 @@ async fn scan_node(
     let mut subfolders: Vec<(u64, String)> = Vec::new();
 
     // PDF stems that have a sibling tab file → they are tab exports, ignore them (§6)
-    let tab_stems: std::collections::HashSet<String> = contents.contents.iter()
+    let tab_stems: std::collections::HashSet<String> = contents
+        .contents
+        .iter()
         .filter(|e| e.is_tab())
         .map(|e| file_stem(&e.name))
         .collect();
@@ -59,7 +61,10 @@ async fn scan_node(
     for entry in &contents.contents {
         let name_lc = entry.name.to_lowercase();
         if entry.isfolder {
-            let sub_id = match entry.folderid { Some(id) => id, None => continue };
+            let sub_id = match entry.folderid {
+                Some(id) => id,
+                None => continue,
+            };
             if !name_lc.starts_with("archive") {
                 subfolders.push((sub_id, entry.name.clone()));
             }
@@ -165,12 +170,11 @@ fn tab_set(entry: &Entry) -> TabSet {
     TabSet {
         id: Uuid::new_v4().to_string(),
         title: file_stem(&entry.name),
-        gp:  if ext == "gp"  { Some(r.clone()) } else { None },
+        gp: if ext == "gp" { Some(r.clone()) } else { None },
         gpx: if ext == "gpx" { Some(r) } else { None },
     }
 }
 
-/// Group BackingTrack list by radical (name minus `(NNNbpm)`), sorted by bpm.
 fn group_by_radical(tracks: &[BackingTrack]) -> Vec<BackingGroup> {
     let mut map: HashMap<String, Vec<BackingTrack>> = HashMap::new();
     for track in tracks {
@@ -189,12 +193,7 @@ fn group_by_radical(tracks: &[BackingTrack]) -> Vec<BackingGroup> {
 }
 
 fn natural_sort_by<T>(items: &mut Vec<T>, key: impl Fn(&T) -> String) {
-    // TODO: replace with proper numeric-aware natural sort
-    items.sort_by(|a, b| {
-        let ka = key(a);
-        let kb = key(b);
-        natural_cmp(&ka, &kb)
-    });
+    items.sort_by(|a, b| natural_cmp(&key(a), &key(b)));
 }
 
 fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
@@ -203,13 +202,15 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     loop {
         match (a_chars.peek().copied(), b_chars.peek().copied()) {
             (None, None) => return std::cmp::Ordering::Equal,
-            (None, _)    => return std::cmp::Ordering::Less,
-            (_, None)    => return std::cmp::Ordering::Greater,
+            (None, _) => return std::cmp::Ordering::Less,
+            (_, None) => return std::cmp::Ordering::Greater,
             (Some(ac), Some(bc)) if ac.is_ascii_digit() && bc.is_ascii_digit() => {
                 let na = consume_number(&mut a_chars);
                 let nb = consume_number(&mut b_chars);
                 let ord = na.cmp(&nb);
-                if ord != std::cmp::Ordering::Equal { return ord; }
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
             }
             (Some(ac), Some(bc)) => {
                 a_chars.next();
@@ -217,7 +218,9 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                 let al = ac.to_lowercase().next().unwrap();
                 let bl = bc.to_lowercase().next().unwrap();
                 let ord = al.cmp(&bl);
-                if ord != std::cmp::Ordering::Equal { return ord; }
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
             }
         }
     }

@@ -28,8 +28,8 @@ cd src-tauri && cargo check
 # Lints Rust
 cd src-tauri && cargo clippy
 
-# Tests Rust (sous-crate manifest, sans dépendances système Tauri)
-cd src-tauri && cargo test -p chelou-manifest
+# Tests unitaires Rust (sous-crates sans dépendances système Tauri — cf. §15 ARCHITECTURE.md)
+cd src-tauri && cargo test -p chelou-manifest -p chelou-pcloud
 
 # Vérification TypeScript sans emit
 npx tsc --noEmit
@@ -113,6 +113,18 @@ AudioBufferSourceNode.start()
 `api.tickPosition` (pas `output.updatePosition(ms)`) : on calcule les ticks depuis le BPM du backing track, pas depuis le tempo du score. C'est la seule façon de rester synchronisé pour les versions lentes.
 
 `leadInMs = defaultCountInBars × beatsPerBar × 60000 / trackBpm` — `beatsPerBar` lu depuis `api.score.masterBars[0].timeSignatureNumerator` après `scoreLoaded`.
+
+## Tests
+
+Deux couches distinctes (cf. `docs/ARCHITECTURE.md` §15) :
+
+| Couche | Périmètre | Vitesse | Commande |
+|---|---|---|---|
+| **Unitaires** | Sous-crates `chelou-manifest`, `chelou-pcloud` — logique pure, zéro dep Tauri | Rapide, CI ubuntu | `cargo test -p chelou-manifest -p chelou-pcloud` |
+| **Intégration** | Comportement complet (Tauri + WebView2 + pCloud) | Lent, lié à la plateforme | *(aucun pour l'instant)* |
+
+**Règle :** toute logique testable unitairement vit dans un sous-crate sans dep Tauri. Si une
+fonction nécessite Tauri pour compiler, la refacto vers un sous-crate est la réponse — pas un mock.
 
 ## Règles non négociables
 

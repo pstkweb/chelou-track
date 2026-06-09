@@ -260,7 +260,31 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
   des Range) contre la version de Tauri installée.
 - Codec vidéo réel (seulement si un échec de décodage survient — sinon non pertinent).
 
-## 14. Décidé contre (ne pas réintroduire sans raison)
+## 15. Stratégie de tests
+
+Deux couches, jamais mélangées :
+
+**Tests unitaires** — rapides, zéro dépendance système (pas de Tauri, gtk, WebKit).
+Vivent dans les sous-crates sans dep Tauri : `chelou-manifest` et `chelou-pcloud`.
+Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :
+
+```
+cargo test -p chelou-manifest -p chelou-pcloud
+```
+
+Règle d'or : **toute logique testable unitairement doit vivre dans un sous-crate.**
+Si une fonction a besoin de Tauri pour être compilée, elle ne peut pas être testée unitairement.
+La refacto vers un sous-crate est le bon mouvement, pas le mock de Tauri.
+
+**Tests d'intégration** — aucun pour l'instant. Quand ils existent, ils dépendent de la stack
+complète (Tauri + WebView2) et sont donc lents et liés à la plateforme. Ils valident un
+comportement de bout en bout, pas de la logique isolée.
+
+**Corollaire architectural :** la séparation en sous-crates (`chelou-manifest`, `chelou-pcloud`)
+n'est pas qu'une commodité d'organisation — c'est ce qui rend les tests unitaires possibles.
+Tout nouveau module avec de la logique non-triviale devrait idéalement rejoindre un sous-crate.
+
+## 16. Décidé contre (ne pas réintroduire sans raison)
 
 - Electron.
 - Appli purement navigateur (impossible, cf. §3).
@@ -268,3 +292,4 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
 - Détection d'onset/silence sur le wav pour trouver le count-in (peu fiable ; le calcul dérivé
   du BPM est plus sûr). Gardé en réserve théorique uniquement.
 - Affichage du PDF dans la vue synchro.
+- Mocks de Tauri dans les tests : on extrait la logique dans un sous-crate à la place (cf. §15).

@@ -2,31 +2,31 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 const KEYRING_SERVICE: &str = "chelou-track";
-const KEYRING_USER: &str = "pcloud-token";
+const KEYRING_USER: &str = "pcloud-credentials";
 
+/// pCloud credentials persisted via the OS keychain (Windows Credential Manager).
+/// Password is never written in cleartext on disk — keyring handles encryption.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthToken {
-    pub token: String,
-    pub uid: u64,
+pub struct StoredCredentials {
+    pub username: String,
+    pub password: String,
 }
 
-/// Wraps the pCloud auth token; persists via the OS keychain (Windows Credential Manager).
-/// Alternative: tauri-plugin-stronghold for an encrypted local vault.
 pub struct AuthStore {
-    token: Option<AuthToken>,
+    credentials: Option<StoredCredentials>,
 }
 
 impl AuthStore {
     pub fn new() -> Self {
-        Self { token: None }
+        Self { credentials: None }
     }
 
-    /// Try to load a previously stored token from the OS keychain.
+    /// Try to restore credentials from the OS keychain on startup.
     pub fn load_from_keychain(&mut self) -> Result<bool> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
         match entry.get_password() {
             Ok(json) => {
-                self.token = serde_json::from_str(&json)?;
+                self.credentials = serde_json::from_str(&json)?;
                 Ok(true)
             }
             Err(keyring::Error::NoEntry) => Ok(false),
@@ -34,10 +34,10 @@ impl AuthStore {
         }
     }
 
-    pub fn save_token(&mut self, token: AuthToken) -> Result<()> {
-        let json = serde_json::to_string(&token)?;
+    pub fn save_credentials(&mut self, creds: StoredCredentials) -> Result<()> {
+        let json = serde_json::to_string(&creds)?;
         keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(&json)?;
-        self.token = Some(token);
+        self.credentials = Some(creds);
         Ok(())
     }
 
@@ -47,15 +47,58 @@ impl AuthStore {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(e) => return Err(e.into()),
         }
-        self.token = None;
+        self.credentials = None;
         Ok(())
     }
 
-    pub fn token(&self) -> Option<&AuthToken> {
-        self.token.as_ref()
+    pub fn credentials(&self) -> Option<&StoredCredentials> {
+        self.credentials.as_ref()
     }
 
     pub fn is_authenticated(&self) -> bool {
-        self.token.is_some()
+        self.credentials.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_store_is_unauthenticated() {
+        let store = AuthStore::new();
+        assert!(!store.is_authenticated());
+        assert!(store.credentials().is_none());
+    }
+
+    /// Verifies the JSON shape stored in the keyring doesn't silently change.
+    #[test]
+    fn stored_credentials_json_roundtrip() {
+        let creds = StoredCredentials {
+            username: "user@example.com".into(),
+            password: "s3cr3t".into(),
+        };
+        let json = serde_json::to_string(&creds).unwrap();
+        let restored: StoredCredentials = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.username, creds.username);
+        assert_eq!(restored.password, creds.password);
+    }
+
+    /// Ensures the JSON contains the expected keys (keyring stores this verbatim).
+    #[test]
+    fn stored_credentials_json_keys() {
+        let creds = StoredCredentials {
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let v: serde_json::Value = serde_json::to_value(&creds).unwrap();
+        assert!(
+            v.get("username").is_some(),
+            "key 'username' must be present"
+        );
+        assert!(
+            v.get("password").is_some(),
+            "key 'password' must be present"
+        );
     }
 }
