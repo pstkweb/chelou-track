@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  ci:
+  ts-lint:
+    name: TypeScript lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,3 +20,24 @@ jobs:
       - run: npm ci
 
       - run: npm run ci
+
+  rust-lint:
+    name: Rust lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings

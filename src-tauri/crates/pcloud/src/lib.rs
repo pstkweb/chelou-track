@@ -82,7 +82,12 @@ impl PCloudClient {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_owned());
         let body = resp.bytes().await?.to_vec();
-        Ok(RangeResponse { status, content_type, content_range, body })
+        Ok(RangeResponse {
+            status,
+            content_type,
+            content_range,
+            body,
+        })
     }
 }
 
@@ -182,7 +187,7 @@ impl Entry {
             && std::path::Path::new(&self.name)
                 .extension()
                 .and_then(|e| e.to_str())
-                .map_or(false, |e| e.eq_ignore_ascii_case("pdf"))
+                .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
     }
 }
 
@@ -191,11 +196,23 @@ mod tests {
     use super::*;
 
     fn file(name: &str) -> Entry {
-        Entry { name: name.to_owned(), isfolder: false, fileid: Some(1), folderid: None, size: None }
+        Entry {
+            name: name.to_owned(),
+            isfolder: false,
+            fileid: Some(1),
+            folderid: None,
+            size: None,
+        }
     }
 
     fn folder(name: &str) -> Entry {
-        Entry { name: name.to_owned(), isfolder: true, fileid: None, folderid: Some(1), size: None }
+        Entry {
+            name: name.to_owned(),
+            isfolder: true,
+            fileid: None,
+            folderid: Some(1),
+            size: None,
+        }
     }
 
     // --- Entry extension methods ---

@@ -7,8 +7,7 @@ use uuid::Uuid;
 
 use crate::{Entry, PCloudClient};
 use chelou_manifest::{
-    BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource,
-    TabSet,
+    BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource, TabSet,
 };
 
 pub async fn scan_tree(client: &PCloudClient, root_folder_id: u64, title: &str) -> Result<Method> {
@@ -16,12 +15,24 @@ pub async fn scan_tree(client: &PCloudClient, root_folder_id: u64, title: &str) 
     let mut documents: Vec<DocumentRef> = Vec::new();
     let mut order = 0u32;
 
-    scan_node(client, root_folder_id, &[], &[], &mut lessons, &mut documents, &mut order).await?;
+    scan_node(
+        client,
+        root_folder_id,
+        &[],
+        &[],
+        &mut lessons,
+        &mut documents,
+        &mut order,
+    )
+    .await?;
 
     Ok(Method {
         id: Uuid::new_v4().to_string(),
         title: title.to_owned(),
-        source: MethodSource { provider: "pcloud".into(), root_folder_id },
+        source: MethodSource {
+            provider: "pcloud".into(),
+            root_folder_id,
+        },
         default_count_in_bars: 1,
         lessons,
         documents,
@@ -125,7 +136,10 @@ fn file_stem(name: &str) -> String {
 }
 
 fn file_ref(entry: &Entry) -> FileRef {
-    FileRef { file_id: entry.fileid.unwrap_or(0), name: entry.name.clone() }
+    FileRef {
+        file_id: entry.fileid.unwrap_or(0),
+        name: entry.name.clone(),
+    }
 }
 
 fn parse_bpm(name: &str) -> u32 {
@@ -192,7 +206,7 @@ fn group_by_radical(tracks: &[BackingTrack]) -> Vec<BackingGroup> {
     groups
 }
 
-fn natural_sort_by<T>(items: &mut Vec<T>, key: impl Fn(&T) -> String) {
+fn natural_sort_by<T>(items: &mut [T], key: impl Fn(&T) -> String) {
     items.sort_by(|a, b| natural_cmp(&key(a), &key(b)));
 }
 
@@ -228,7 +242,7 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 fn consume_number(iter: &mut std::iter::Peekable<std::str::Chars>) -> u64 {
     let mut s = String::new();
-    while iter.peek().map_or(false, |c| c.is_ascii_digit()) {
+    while iter.peek().is_some_and(|c| c.is_ascii_digit()) {
         s.push(iter.next().unwrap());
     }
     s.parse().unwrap_or(0)

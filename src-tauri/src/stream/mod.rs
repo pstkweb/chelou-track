@@ -64,7 +64,9 @@ async fn handle_inner<R: Runtime>(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_owned());
 
-    let resp = client.fetch_range(&pcloud_url, range_header.as_deref()).await?;
+    let resp = client
+        .fetch_range(&pcloud_url, range_header.as_deref())
+        .await?;
 
     let mut builder = tauri::http::Response::builder()
         .status(resp.status)
