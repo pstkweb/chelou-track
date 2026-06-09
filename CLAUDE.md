@@ -19,17 +19,21 @@ npm run dev
 # Build production
 npm run build
 
+# CI TypeScript : biome + tsc (lancé par GitHub Actions)
+npm run ci
+
 # Vérification rapide Rust (pas de link — beaucoup plus rapide que build)
 cd src-tauri && cargo check
 
 # Lints Rust
 cd src-tauri && cargo clippy
 
+# Tests Rust (sous-crate manifest, sans dépendances système Tauri)
+cd src-tauri && cargo test -p chelou-manifest
+
 # Vérification TypeScript sans emit
 npx tsc --noEmit
 ```
-
-Pas de suite de tests pour l'instant.
 
 ## Stack
 
@@ -57,17 +61,29 @@ fetch("stream://") ►  stream/mod.rs (protocol)  ──►  bytes (Range)
 
 Le WebView ne touche jamais le token ni une URL pCloud brute. Tout transite par `invoke()` ou le protocole custom `stream://`.
 
-### Modules Rust (`src-tauri/src/`)
+### Modules Rust
+
+`src-tauri/` est un workspace Cargo avec deux crates :
+
+**`src-tauri/` (crate principal — dépend de Tauri)**
 
 | Module | Rôle |
 |---|---|
-| `lib.rs` | Point d'entrée ; wire le handler `stream://`, l'`AppState` et l'`invoke_handler` |
-| `commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes |
-| `auth/` | `AuthStore` : token en mémoire + persistance keychain (Windows Credential Manager) |
-| `pcloud/mod.rs` | `PCloudClient` : `getfilelink`, `getvideolink`, `listfolder`, `fetch_range` |
-| `pcloud/scanner.rs` | Scan DFS pCloud → `Method` : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` |
-| `stream/mod.rs` | Handler `stream://` : parse l'URI, appelle `getfilelink`/`getvideolink`, forward le header `Range` |
-| `manifest/mod.rs` | Miroir Rust du modèle TS + `ManifestStore` (un JSON par méthode dans l'app-data dir) |
+| `src/lib.rs` | Point d'entrée ; wire le handler `stream://`, l'`AppState` et l'`invoke_handler` |
+| `src/commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes |
+| `src/auth/` | `AuthStore` : token en mémoire + persistance keychain (Windows Credential Manager) |
+| `src/pcloud/mod.rs` | `PCloudClient` : `getfilelink`, `getvideolink`, `listfolder`, `fetch_range` |
+| `src/pcloud/scanner.rs` | Scan DFS pCloud → `Method` : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` |
+| `src/stream/mod.rs` | Handler `stream://` : parse l'URI, appelle `getfilelink`/`getvideolink`, forward le header `Range` |
+| `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
+
+**`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib.rs` | Modèle Rust miroir de `types/model.ts` + `ManifestStore` (un JSON par méthode dans l'app-data dir) |
+
+Ce découpage permet de tester le modèle et la persistance sans compiler Tauri ni les dépendances système (GTK, WebKit).
 
 ### Modules TypeScript (`src/`)
 
@@ -112,24 +128,9 @@ AudioBufferSourceNode.start()
 
 ```typescript
 import * as alphaTab from '@coderline/alphatab';
-import type { IExternalMediaHandler, IExternalMediaSynthOutput } from '@coderline/alphatab';
 
-// Init
-const api = new alphaTab.AlphaTabApi(element, {
-  player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia }, // = 4
-});
-
-// Branchement handler (après playerReady)
-api.playerReady.on(() => {
-  (api.player!.output as IExternalMediaSynthOutput).handler = monHandler;
-});
-
-// beatsPerBar (après scoreLoaded)
-api.scoreLoaded.on((score) => {
-  beatsPerBar = score.masterBars[0].timeSignatureNumerator;
-});
-
-// IExternalMediaHandler — AlphaTab appelle ces méthodes sur toi
+// IExternalMediaHandler et IExternalMediaSynthOutput sont déclarés dans alphaTab.d.ts
+// mais NON exportés du module. Les déclarer localement (typage structurel).
 interface IExternalMediaHandler {
   readonly backingTrackDuration: number; // durée WAV en ms
   playbackRate: number;
@@ -138,6 +139,28 @@ interface IExternalMediaHandler {
   play(): void;
   pause(): void;
 }
+interface IExternalMediaSynthOutput {
+  handler: IExternalMediaHandler | null;
+}
+
+// Init
+const api = new alphaTab.AlphaTabApi(element, {
+  player: { playerMode: alphaTab.PlayerMode.EnabledExternalMedia }, // = 4
+});
+
+// Branchement handler (après playerReady)
+// Cast double nécessaire : ISynthOutput (type de player.output) n'overlaps pas IExternalMediaSynthOutput
+api.playerReady.on(() => {
+  const player = api.player;
+  if (player) {
+    (player.output as unknown as IExternalMediaSynthOutput).handler = monHandler;
+  }
+});
+
+// beatsPerBar (après scoreLoaded)
+api.scoreLoaded.on((score) => {
+  beatsPerBar = score.masterBars[0].timeSignatureNumerator;
+});
 ```
 
 ### Tauri v2 — handler stream://
@@ -161,6 +184,6 @@ pub fn handle<R: Runtime>(
 
 ## Conventions
 
-- `manifest/mod.rs` et `types/model.ts` doivent rester en miroir (serde `rename` pour camelCase).
+- `crates/manifest/src/lib.rs` (Rust) et `types/model.ts` (TS) doivent rester en miroir (serde `rename` pour camelCase). `src/manifest/mod.rs` est un stub `pub use chelou_manifest::*` — ne pas y écrire de logique.
 - `AudioBufferSourceNode` ne peut pas être restarted : le recréer depuis zéro pour chaque `seekTo`.
 - Token pCloud : jamais en clair sur disque, toujours via `keyring::Entry`.
