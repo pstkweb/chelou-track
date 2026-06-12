@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+/* le mode sombre suit l'attribut [data-mode="dark"] (ou la classe .dark) */
+@custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"], .dark *, .dark));
+
+/* ---- Valeurs brutes des tokens -------------------------------------------- */
+:root {
+    --ease: cubic-bezier(.22, .61, .36, 1);
+
+    /* Typo */
+    --font-display: "Space Grotesk", system-ui, sans-serif;
+    --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+    /* Rayons */
+    --radius-sm: 4px;
+    --radius-md: 5px;
+    --radius-lg: 7px;
+
+    /* Statut */
+    --done: #4fae6a;
+
+    /* Accent + surfaces — valeurs CLAIRES par défaut */
+    --accent: #5f8a00;
+    --accent-2: #7ce0c3;
+    --accent-contrast: #ffffff;
+    --bg: #e9ecef;
+    --bg-2: #ffffff;
+    --bg-3: #f2f4f6;
+    --surface: #ffffff;
+    --border: rgba(15, 20, 26, .10);
+    --border-2: rgba(15, 20, 26, .2);
+    --text: #12151a;
+    --text-2: #555e68;
+    --text-3: #8893a0;
+    --chip: rgba(15, 20, 26, .04);
+    --shadow: 0 10px 30px rgba(15, 25, 35, .1);
+}
+
+/* ---- Surcharge SOMBRE ----------------------------------------------------- */
+[data-mode="dark"],
+.dark {
+    --accent: #c8f24a;
+    --accent-contrast: #0a0b0d;
+    --bg: #0a0b0d;
+    --bg-2: #101216;
+    --bg-3: #171a20;
+    --surface: #0e1014;
+    --border: rgba(255, 255, 255, .08);
+    --border-2: rgba(255, 255, 255, .16);
+    --text: #e7eaee;
+    --text-2: #8b939d;
+    --text-3: #565d66;
+    --chip: rgba(255, 255, 255, .05);
+    --shadow: 0 12px 36px rgba(0, 0, 0, .6);
+}
+
+/* ---- Mapping vers les utilitaires Tailwind -------------------------------- */
+@theme inline {
+    --color-bg: var(--bg);
+    --color-bg2: var(--bg-2);
+    --color-bg3: var(--bg-3);
+    --color-surface: var(--surface);
+    --color-border: var(--border);
+    --color-border2: var(--border-2);
+    --color-fg: var(--text);
+    /* text-fg  */
+    --color-fg2: var(--text-2);
+    /* text-fg2 */
+    --color-fg3: var(--text-3);
+    /* text-fg3 */
+    --color-accent: var(--accent);
+    --color-accent2: var(--accent-2);
+    --color-accentink: var(--accent-contrast);
+    /* texte SUR l'accent */
+    --color-chip: var(--chip);
+    --color-done: var(--done);
+
+    --font-display: var(--font-display);
+    --font-sans: var(--font-ui);
+    --font-mono: var(--font-mono);
+
+    --radius-sm: var(--radius-sm);
+    --radius-md: var(--radius-md);
+    --radius-lg: var(--radius-lg);
+
+    --shadow-soft: var(--shadow);
+}
+
+/* ---- Base ----------------------------------------------------------------- */
+@layer base {
+    body {
+        @apply bg-bg text-fg font-sans antialiased;
+    }
+
+    ::selection {
+        background: var(--accent);
+        color: var(--accent-contrast);
+    }
+}

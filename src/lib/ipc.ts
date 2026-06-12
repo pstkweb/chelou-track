@@ -17,6 +17,22 @@ export async function getAuthStatus(): Promise<boolean> {
   return invoke("get_auth_status");
 }
 
+// --- pCloud folder browsing ---
+
+export interface FolderEntry {
+  name: string;
+  folderid: number;
+}
+
+/** Returns only the sub-folder children of the given folder (files are filtered out). */
+export async function listFolder(folderId: number): Promise<FolderEntry[]> {
+  const result: { contents: Array<{ name: string; isfolder: boolean; folderid?: number }> } =
+    await invoke("list_folder", { folderId });
+  return result.contents
+    .filter(e => e.isfolder && e.folderid != null)
+    .map(e => ({ name: e.name, folderid: e.folderid! }));
+}
+
 // --- Catalogue / manifest ---
 
 export async function listMethods(): Promise<Method[]> {

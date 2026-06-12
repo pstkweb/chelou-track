@@ -1,6 +1,7 @@
 pub mod scanner;
 
 use anyhow::{anyhow, Result};
+use serde::Serialize;
 
 pub struct PCloudClient {
     client: pcloud::Client,
@@ -135,14 +136,14 @@ fn map_entry(entry: pcloud::entry::Entry) -> Entry {
 
 // --- Types (used by scanner) ---
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct FolderContents {
     pub folderid: u64,
     pub name: String,
     pub contents: Vec<Entry>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Entry {
     pub name: String,
     pub isfolder: bool,

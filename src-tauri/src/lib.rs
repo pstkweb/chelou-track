@@ -32,6 +32,7 @@ pub fn run() {
             commands::pcloud_logout,
             commands::get_auth_status,
             commands::list_methods,
+            commands::list_folder,
             commands::scan_method,
             commands::save_method,
             commands::delete_method,

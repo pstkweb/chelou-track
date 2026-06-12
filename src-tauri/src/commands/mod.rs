@@ -58,6 +58,21 @@ pub async fn get_auth_status(state: State<'_, AppState>) -> Result<bool, String>
 // --- Catalogue / manifest ---
 
 #[tauri::command]
+pub async fn list_folder(
+    state: State<'_, AppState>,
+    folder_id: u64,
+) -> Result<crate::pcloud::FolderContents, String> {
+    let (username, password) = {
+        let auth = state.auth.lock().unwrap();
+        let creds = auth.credentials().ok_or("not authenticated")?;
+        (creds.username.clone(), creds.password.clone())
+    };
+    let client = PCloudClient::new(username, password).map_err(|e| e.to_string())?;
+    client.list_folder(folder_id).await.map_err(|e| e.to_string())
+}
+
+
+#[tauri::command]
 pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, String> {
     state.manifest.load_all().map_err(|e| e.to_string())
 }
