@@ -32,6 +32,7 @@ keyring      = "3"
 anyhow       = "1"
 thiserror    = "1"
 log          = "0.4"
+tauri-plugin-os = "2"
 
 [profile.dev]
 incremental = true

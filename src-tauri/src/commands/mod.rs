@@ -68,9 +68,11 @@ pub async fn list_folder(
         (creds.username.clone(), creds.password.clone())
     };
     let client = PCloudClient::new(username, password).map_err(|e| e.to_string())?;
-    client.list_folder(folder_id).await.map_err(|e| e.to_string())
+    client
+        .list_folder(folder_id)
+        .await
+        .map_err(|e| e.to_string())
 }
-
 
 #[tauri::command]
 pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, String> {

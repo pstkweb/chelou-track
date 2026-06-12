@@ -15,7 +15,8 @@
         "title": "Chelou Track",
         "width": 1280,
         "height": 800,
-        "resizable": true
+        "resizable": true,
+        "decorations": false
       }
     ],
     "security": {
@@ -25,6 +26,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico"]
+    "icon": [
+      "icons/icon.ico"
+    ]
   }
 }
