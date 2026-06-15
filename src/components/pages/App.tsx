@@ -1,18 +1,45 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getAuthStatus, listMethods } from "../../lib/ipc";
+import type { Method } from "../../types/model";
 import TitleBar from "../organisms/TitleBar";
 import ConnectScreen from "../templates/ConnectScreen";
 
+type AppState = "loading" | "no-auth" | "no-methods" | "ready";
+
 export default function App() {
-  const [isConnected, setIsconnected] = useState<boolean>(false);
+  const [state, setState] = useState<AppState>("loading");
+  const [methods, setMethods] = useState<Method[]>([]);
+
+  useEffect(() => {
+    getAuthStatus().then((authed) => {
+      if (!authed) {
+        setState("no-auth");
+
+        return;
+      }
+
+      return listMethods().then((methods) => {
+        setMethods(methods);
+        setState(methods.length > 0 ? "ready" : "no-methods");
+      });
+    });
+  }, []);
+
+  if (state === "loading") return null;
 
   return (
     <div className="app-window">
-      <TitleBar connected={isConnected} crumbs={[]} />
+      <TitleBar connected={["no-methods", "ready"].includes(state)} crumbs={[]} />
 
       <div className="app-body">
-        {!isConnected && <ConnectScreen onConnected={() => {
-          setIsconnected(true);
-        }} />}
+        {state === "ready" ? (
+          <div>Next connected screen : {methods.length} methods</div>
+        ) : (
+          <ConnectScreen
+            startAtFolder={state === "no-methods"}
+            onConnected={() => setState("ready")}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 pub mod scanner;
+pub use scanner::{scan_methods_in_folder, ScanEvent};
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
@@ -10,10 +11,13 @@ pub struct PCloudClient {
 
 impl PCloudClient {
     /// Uses EU endpoint — never the US one (cf. ARCHITECTURE.md §3).
-    pub fn new(username: String, password: String) -> Result<Self> {
+    /// `token` is the OAuth access token obtained via pCloud OAuth flow.
+    pub fn new(token: String) -> Result<Self> {
         let client = pcloud::Client::new(
             pcloud::EU_REGION,
-            pcloud::Credentials::username_password(username, password),
+            pcloud::Credentials::AccessToken {
+                access_token: token,
+            },
         )
         .map_err(|e| anyhow!("failed to build pCloud client: {e}"))?;
         Ok(Self {

@@ -1,9 +1,9 @@
 // Tauri commands — the only surface the frontend can call via invoke().
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
-use std::sync::Mutex;
-use tauri::State;
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, State};
 
-use crate::auth::{AuthStore, StoredCredentials};
+use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
 use crate::pcloud::PCloudClient;
 
@@ -13,32 +13,6 @@ pub struct AppState {
 }
 
 // --- Auth ---
-
-#[tauri::command]
-pub async fn pcloud_login(
-    state: State<'_, AppState>,
-    username: String,
-    password: String,
-) -> Result<(), String> {
-    let client =
-        PCloudClient::new(username.clone(), password.clone()).map_err(|e| e.to_string())?;
-
-    // Validate credentials with a real API call before storing them.
-    client
-        .list_folder(0)
-        .await
-        .map_err(|e| format!("authentication failed: {e}"))?;
-
-    let creds = StoredCredentials { username, password };
-    state
-        .auth
-        .lock()
-        .unwrap()
-        .save_credentials(creds)
-        .map_err(|e| e.to_string())?;
-
-    Ok(())
-}
 
 #[tauri::command]
 pub async fn pcloud_logout(state: State<'_, AppState>) -> Result<(), String> {
@@ -55,24 +29,25 @@ pub async fn get_auth_status(state: State<'_, AppState>) -> Result<bool, String>
     Ok(state.auth.lock().unwrap().is_authenticated())
 }
 
-// --- Catalogue / manifest ---
+// --- pCloud folder browsing ---
 
 #[tauri::command]
 pub async fn list_folder(
     state: State<'_, AppState>,
     folder_id: u64,
 ) -> Result<crate::pcloud::FolderContents, String> {
-    let (username, password) = {
+    let token = {
         let auth = state.auth.lock().unwrap();
-        let creds = auth.credentials().ok_or("not authenticated")?;
-        (creds.username.clone(), creds.password.clone())
+        auth.token().ok_or("not authenticated")?.to_owned()
     };
-    let client = PCloudClient::new(username, password).map_err(|e| e.to_string())?;
+    let client = PCloudClient::new(token).map_err(|e| e.to_string())?;
     client
         .list_folder(folder_id)
         .await
         .map_err(|e| e.to_string())
 }
+
+// --- Catalogue / manifest ---
 
 #[tauri::command]
 pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, String> {
@@ -81,17 +56,19 @@ pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, Str
 
 #[tauri::command]
 pub async fn scan_method(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     root_folder_id: u64,
-    title: String,
-) -> Result<Method, String> {
-    let (username, password) = {
+) -> Result<Vec<Method>, String> {
+    let token = {
         let auth = state.auth.lock().unwrap();
-        let creds = auth.credentials().ok_or("not authenticated")?;
-        (creds.username.clone(), creds.password.clone())
+        auth.token().ok_or("not authenticated")?.to_owned()
     };
-    let client = PCloudClient::new(username, password).map_err(|e| e.to_string())?;
-    crate::pcloud::scanner::scan_tree(&client, root_folder_id, &title)
+    let client = PCloudClient::new(token).map_err(|e| e.to_string())?;
+    let on_progress = Arc::new(move |event: crate::pcloud::ScanEvent| {
+        let _ = app.emit("scan:progress", event);
+    });
+    crate::pcloud::scan_methods_in_folder(&client, root_folder_id, on_progress)
         .await
         .map_err(|e| e.to_string())
 }

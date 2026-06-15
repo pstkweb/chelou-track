@@ -2,7 +2,12 @@
 // No tab↔backing matching by name (cf. ARCHITECTURE.md §6 + §14).
 use anyhow::Result;
 use async_recursion::async_recursion;
+use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use uuid::Uuid;
 
 use crate::{Entry, PCloudClient};
@@ -10,25 +15,42 @@ use chelou_manifest::{
     BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource, TabSet,
 };
 
-pub async fn scan_tree(client: &PCloudClient, root_folder_id: u64, title: &str) -> Result<Method> {
-    let mut lessons: Vec<Lesson> = Vec::new();
-    let mut documents: Vec<DocumentRef> = Vec::new();
-    let mut order = 0u32;
+/// Progress event emitted during a DFS scan — one per folder entered.
+/// Payload of the Tauri "scan:progress" event.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanEvent {
+    /// Name of the cloud folder currently being visited.
+    #[serde(rename = "currentFolder")]
+    pub current_folder: String,
+    /// Total cloud folders visited so far (DFS, all candidates combined).
+    #[serde(rename = "foldersVisited")]
+    pub folders_visited: u32,
+    /// Top-level candidate folders confirmed as methods (had ≥1 video) so far.
+    #[serde(rename = "methodsFound")]
+    pub methods_found: u32,
+}
 
-    scan_node(
-        client,
-        root_folder_id,
-        &[],
-        &[],
-        &mut lessons,
-        &mut documents,
-        &mut order,
-    )
-    .await?;
+pub async fn scan_tree(
+    client: &PCloudClient,
+    root_folder_id: u64,
+    on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
+) -> Result<Method> {
+    let root_folder = client.list_folder(root_folder_id).await?;
+
+    let mut lessons = Vec::new();
+    let mut documents = Vec::new();
+    let mut order = 0u32;
+    let mut output = ScanOutput {
+        lessons: &mut lessons,
+        documents: &mut documents,
+        order: &mut order,
+    };
+
+    scan_node(client, root_folder_id, &[], &[], &mut output, on_progress).await?;
 
     Ok(Method {
         id: Uuid::new_v4().to_string(),
-        title: title.to_owned(),
+        title: root_folder.name,
         source: MethodSource {
             provider: "pcloud".into(),
             root_folder_id,
@@ -39,15 +61,68 @@ pub async fn scan_tree(client: &PCloudClient, root_folder_id: u64, title: &str) 
     })
 }
 
+/// Scan each direct (non-archive) subfolder of `root_folder_id` as a separate Method.
+/// Returns one Method per subfolder, in natural sort order.
+/// Use this when the picked folder is a container (e.g. "Méthodes guitare").
+pub async fn scan_methods_in_folder(
+    client: &PCloudClient,
+    root_folder_id: u64,
+    on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
+) -> Result<Vec<Method>> {
+    let root = client.list_folder(root_folder_id).await?;
+
+    let mut subfolders: Vec<(u64, String)> = root
+        .contents
+        .into_iter()
+        .filter(|e| e.isfolder && !e.name.to_lowercase().starts_with("archive"))
+        .filter_map(|e| e.folderid.map(|id| (id, e.name)))
+        .collect();
+
+    natural_sort_by(&mut subfolders, |(_, name)| name.clone());
+
+    let mut methods = Vec::new();
+
+    // Shared atomic — Fn closure (not FnMut) can't hold &mut, so we use AtomicU32.
+    let folders_visited = Arc::new(AtomicU32::new(0));
+    let mut methods_found = 0u32;
+
+    for (folder_id, _) in subfolders {
+        let prog = Arc::clone(&on_progress);
+        let fv = Arc::clone(&folders_visited);
+        let mf = methods_found;
+
+        let wrapped: Arc<dyn Fn(ScanEvent) + Send + Sync> = Arc::new(move |event| {
+            prog(ScanEvent {
+                current_folder: event.current_folder,
+                folders_visited: fv.fetch_add(1, Ordering::Relaxed) + 1,
+                methods_found: mf,
+            });
+        });
+
+        let method = scan_tree(client, folder_id, wrapped).await?;
+        if !method.lessons.is_empty() {
+            methods_found += 1;
+        }
+        methods.push(method);
+    }
+
+    Ok(methods)
+}
+
+struct ScanOutput<'a> {
+    lessons: &'a mut Vec<Lesson>,
+    documents: &'a mut Vec<DocumentRef>,
+    order: &'a mut u32,
+}
+
 #[async_recursion]
 async fn scan_node(
     client: &PCloudClient,
     folder_id: u64,
     inherited_backing: &'async_recursion [BackingTrack],
     inherited_tabs: &'async_recursion [TabSet],
-    lessons: &mut Vec<Lesson>,
-    documents: &mut Vec<DocumentRef>,
-    order: &mut u32,
+    output: &mut ScanOutput,
+    on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
 ) -> Result<()> {
     let contents = client.list_folder(folder_id).await?;
 
@@ -56,10 +131,20 @@ async fn scan_node(
         return Ok(());
     }
 
+    // folders_visited and methods_found are placeholders — the wrapper in
+    // scan_methods_in_folder replaces them with the real global values.
+    on_progress(ScanEvent {
+        current_folder: contents.name.clone(),
+        folders_visited: 0,
+        methods_found: 0,
+    });
+
     let mut local_backing: Vec<BackingTrack> = inherited_backing.to_vec();
     let mut local_tabs: Vec<TabSet> = inherited_tabs.to_vec();
     let mut videos: Vec<FileRef> = Vec::new();
-    let mut subfolders: Vec<(u64, String)> = Vec::new();
+    // §6 special keyword folders: contents are merged into the parent pool, not recursed.
+    let mut special_subfolders: Vec<u64> = Vec::new();
+    let mut regular_subfolders: Vec<(u64, String)> = Vec::new();
 
     // PDF stems that have a sibling tab file → they are tab exports, ignore them (§6)
     let tab_stems: std::collections::HashSet<String> = contents
@@ -76,8 +161,13 @@ async fn scan_node(
                 Some(id) => id,
                 None => continue,
             };
-            if !name_lc.starts_with("archive") {
-                subfolders.push((sub_id, entry.name.clone()));
+            if name_lc.starts_with("archive") {
+                // skip
+            } else if name_lc.starts_with("tab") || name_lc.starts_with("backing") {
+                // §6 special folder: merge contents into parent pool before building lessons
+                special_subfolders.push(sub_id);
+            } else {
+                regular_subfolders.push((sub_id, entry.name.clone()));
             }
         } else if entry.is_video() {
             videos.push(file_ref(entry));
@@ -86,7 +176,7 @@ async fn scan_node(
         } else if entry.is_tab() {
             local_tabs.push(tab_set(entry));
         } else if entry.is_pdf() && !tab_stems.contains(&file_stem(&entry.name)) {
-            documents.push(DocumentRef {
+            output.documents.push(DocumentRef {
                 file: file_ref(entry),
                 kind: DocKind::Pdf,
                 title: file_stem(&entry.name),
@@ -94,13 +184,40 @@ async fn scan_node(
         }
     }
 
-    // Videos in this folder → lessons, natural-sorted
+    // Merge special subfolder contents into local pools (§6: tab*, backing*).
+    // Done before creating lessons so videos at the same level get the full pool.
+    for sub_id in special_subfolders {
+        let sub = client.list_folder(sub_id).await?;
+        let sub_tab_stems: std::collections::HashSet<String> = sub
+            .contents
+            .iter()
+            .filter(|e| e.is_tab())
+            .map(|e| file_stem(&e.name))
+            .collect();
+        for entry in &sub.contents {
+            if entry.isfolder {
+                continue; // nested folders inside special dirs are ignored
+            } else if entry.is_audio() {
+                local_backing.push(backing_track(entry));
+            } else if entry.is_tab() {
+                local_tabs.push(tab_set(entry));
+            } else if entry.is_pdf() && !sub_tab_stems.contains(&file_stem(&entry.name)) {
+                output.documents.push(DocumentRef {
+                    file: file_ref(entry),
+                    kind: DocKind::Pdf,
+                    title: file_stem(&entry.name),
+                });
+            }
+        }
+    }
+
+    // Videos in this folder → lessons with the now-complete pool, natural-sorted
     natural_sort_by(&mut videos, |f| f.name.clone());
     for video in videos {
-        *order += 1;
-        lessons.push(Lesson {
+        *(output.order) += 1;
+        output.lessons.push(Lesson {
             id: Uuid::new_v4().to_string(),
-            order: *order,
+            order: *(output.order),
             title: file_stem(&video.name),
             videos: vec![video],
             tabs: local_tabs.clone(),
@@ -108,17 +225,16 @@ async fn scan_node(
         });
     }
 
-    // Recurse into subfolders, natural-sorted
-    natural_sort_by(&mut subfolders, |(_, name)| name.clone());
-    for (sub_id, _) in subfolders {
+    // Recurse into regular subfolders with the completed pool, natural-sorted
+    natural_sort_by(&mut regular_subfolders, |(_, name)| name.clone());
+    for (sub_id, _) in regular_subfolders {
         scan_node(
             client,
             sub_id,
             &local_backing,
             &local_tabs,
-            lessons,
-            documents,
-            order,
+            output,
+            Arc::clone(&on_progress),
         )
         .await?;
     }

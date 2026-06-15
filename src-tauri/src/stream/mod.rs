@@ -39,15 +39,14 @@ async fn handle_inner<R: Runtime>(
     let req = parse_uri(&uri).ok_or_else(|| anyhow::anyhow!("invalid stream URI: {uri}"))?;
 
     let state = app.state::<AppState>();
-    let (username, password) = {
+    let token = {
         let auth = state.auth.lock().unwrap();
-        let creds = auth
-            .credentials()
-            .ok_or_else(|| anyhow::anyhow!("not authenticated"))?;
-        (creds.username.clone(), creds.password.clone())
+        auth.token()
+            .ok_or_else(|| anyhow::anyhow!("not authenticated"))?
+            .to_owned()
     };
 
-    let client = crate::pcloud::PCloudClient::new(username, password)
+    let client = crate::pcloud::PCloudClient::new(token)
         .map_err(|e| anyhow::anyhow!("failed to build client: {e}"))?;
 
     let pcloud_url = match (req.kind, req.transcoded) {

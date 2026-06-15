@@ -1,32 +1,23 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 const KEYRING_SERVICE: &str = "chelou-track";
-const KEYRING_USER: &str = "pcloud-credentials";
-
-/// pCloud credentials persisted via the OS keychain (Windows Credential Manager).
-/// Password is never written in cleartext on disk — keyring handles encryption.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredCredentials {
-    pub username: String,
-    pub password: String,
-}
+const KEYRING_USER: &str = "pcloud-token";
 
 pub struct AuthStore {
-    credentials: Option<StoredCredentials>,
+    token: Option<String>,
 }
 
 impl AuthStore {
     pub fn new() -> Self {
-        Self { credentials: None }
+        Self { token: None }
     }
 
-    /// Try to restore credentials from the OS keychain on startup.
+    /// Restore token from OS keychain on startup.
     pub fn load_from_keychain(&mut self) -> Result<bool> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
         match entry.get_password() {
-            Ok(json) => {
-                self.credentials = serde_json::from_str(&json)?;
+            Ok(token) => {
+                self.token = Some(token);
                 Ok(true)
             }
             Err(keyring::Error::NoEntry) => Ok(false),
@@ -34,10 +25,10 @@ impl AuthStore {
         }
     }
 
-    pub fn save_credentials(&mut self, creds: StoredCredentials) -> Result<()> {
-        let json = serde_json::to_string(&creds)?;
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(&json)?;
-        self.credentials = Some(creds);
+    /// Persist token to OS keychain and keep it in memory.
+    pub fn save_token(&mut self, token: String) -> Result<()> {
+        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(&token)?;
+        self.token = Some(token);
         Ok(())
     }
 
@@ -47,16 +38,16 @@ impl AuthStore {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(e) => return Err(e.into()),
         }
-        self.credentials = None;
+        self.token = None;
         Ok(())
     }
 
-    pub fn credentials(&self) -> Option<&StoredCredentials> {
-        self.credentials.as_ref()
+    pub fn token(&self) -> Option<&str> {
+        self.token.as_deref()
     }
 
     pub fn is_authenticated(&self) -> bool {
-        self.credentials.is_some()
+        self.token.is_some()
     }
 }
 
@@ -68,37 +59,22 @@ mod tests {
     fn new_store_is_unauthenticated() {
         let store = AuthStore::new();
         assert!(!store.is_authenticated());
-        assert!(store.credentials().is_none());
+        assert!(store.token().is_none());
     }
 
-    /// Verifies the JSON shape stored in the keyring doesn't silently change.
     #[test]
-    fn stored_credentials_json_roundtrip() {
-        let creds = StoredCredentials {
-            username: "user@example.com".into(),
-            password: "s3cr3t".into(),
-        };
-        let json = serde_json::to_string(&creds).unwrap();
-        let restored: StoredCredentials = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.username, creds.username);
-        assert_eq!(restored.password, creds.password);
+    fn token_set_directly_authenticates() {
+        let mut store = AuthStore::new();
+        store.token = Some("tok_abc123".into());
+        assert!(store.is_authenticated());
+        assert_eq!(store.token(), Some("tok_abc123"));
     }
 
-    /// Ensures the JSON contains the expected keys (keyring stores this verbatim).
     #[test]
-    fn stored_credentials_json_keys() {
-        let creds = StoredCredentials {
-            username: "u".into(),
-            password: "p".into(),
-        };
-        let v: serde_json::Value = serde_json::to_value(&creds).unwrap();
-        assert!(
-            v.get("username").is_some(),
-            "key 'username' must be present"
-        );
-        assert!(
-            v.get("password").is_some(),
-            "key 'password' must be present"
-        );
+    fn cleared_token_is_unauthenticated() {
+        let mut store = AuthStore::new();
+        store.token = Some("tok_abc123".into());
+        store.token = None;
+        assert!(!store.is_authenticated());
     }
 }
