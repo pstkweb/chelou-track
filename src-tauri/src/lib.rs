@@ -9,6 +9,11 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 pub fn run() {
+    keyring_core::set_default_store(
+        windows_native_keyring_store::Store::new()
+            .expect("failed to init Windows credential store"),
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .register_asynchronous_uri_scheme_protocol("stream", |app, request, responder| {

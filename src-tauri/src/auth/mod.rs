@@ -1,4 +1,5 @@
 use anyhow::Result;
+use keyring_core::Entry;
 
 const KEYRING_SERVICE: &str = "chelou-track";
 const KEYRING_USER: &str = "pcloud-token";
@@ -14,28 +15,28 @@ impl AuthStore {
 
     /// Restore token from OS keychain on startup.
     pub fn load_from_keychain(&mut self) -> Result<bool> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
+        let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
         match entry.get_password() {
             Ok(token) => {
                 self.token = Some(token);
                 Ok(true)
             }
-            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(keyring_core::Error::NoEntry) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }
 
     /// Persist token to OS keychain and keep it in memory.
     pub fn save_token(&mut self, token: String) -> Result<()> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(&token)?;
+        Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(&token)?;
         self.token = Some(token);
         Ok(())
     }
 
     pub fn clear(&mut self) -> Result<()> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
+        let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
         match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Ok(()) | Err(keyring_core::Error::NoEntry) => {}
             Err(e) => return Err(e.into()),
         }
         self.token = None;
