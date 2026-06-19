@@ -3,7 +3,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
+
+// Client credentials baked at compile time.
+// Set PCLOUD_CLIENT_ID and PCLOUD_CLIENT_SECRET in the environment before building,
+// e.g. via src-tauri/.cargo/config.toml (gitignored).
+const PCLOUD_CLIENT_ID: &str = env!("PCLOUD_CLIENT_ID");
+const PCLOUD_CLIENT_SECRET: &str = env!("PCLOUD_CLIENT_SECRET");
 
 use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
@@ -18,6 +24,34 @@ pub struct AppState {
 }
 
 // --- Auth ---
+
+/// Start the pCloud OAuth2 authorization code flow (RFC 8252 loopback redirect).
+/// Opens the system browser with the pCloud authorization page, then waits in the
+/// background for the callback. On success emits `oauth:complete`; on error `oauth:error`.
+#[tauri::command]
+pub async fn pcloud_oauth_start(app: tauri::AppHandle) -> Result<(), String> {
+    let (auth_url, listener) = crate::auth::oauth::start_loopback_server(PCLOUD_CLIENT_ID)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    open::that(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
+
+    // Block until the user completes auth in the browser or the 5-minute timeout elapses.
+    let token =
+        crate::auth::oauth::wait_for_token(listener, PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    {
+        let state = app.state::<AppState>();
+        let r = state.auth.lock().unwrap().save_token(token);
+        r
+    }
+    .map_err(|e| e.to_string())?;
+
+    let _ = app.emit("oauth:complete", ());
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn pcloud_logout(state: State<'_, AppState>) -> Result<(), String> {

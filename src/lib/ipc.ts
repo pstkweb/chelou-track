@@ -4,7 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Method } from "../types/model";
 
 // --- Auth ---
-// pcloudLogin will be added once the OAuth flow is implemented (client_id pending).
+
+/** Open the pCloud OAuth popup and await completion. Throws on cancel or error. */
+export async function pcloudOauthStart(): Promise<void> {
+  await invoke("pcloud_oauth_start");
+}
 
 export async function pcloudLogout(): Promise<void> {
   await invoke("pcloud_logout");

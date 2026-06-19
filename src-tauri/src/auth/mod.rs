@@ -1,3 +1,5 @@
+pub mod oauth;
+
 use anyhow::Result;
 use keyring_core::Entry;
 

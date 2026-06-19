@@ -6,3 +6,4 @@ src-tauri/WixTools/
 .DS_Store
 .vscode/
 src-tauri/gen/
+src-tauri/.cargo/config.toml

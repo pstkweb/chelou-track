@@ -27,11 +27,6 @@ pub fn run() {
             let mut auth = auth::AuthStore::new();
             // Restore token from OS keychain (normal path).
             let _ = auth.load_from_keychain();
-            // Dev override: PCLOUD_DEV_TOKEN env var writes to keyring on first use,
-            // so subsequent launches work without the env var.
-            if let Ok(token) = std::env::var("PCLOUD_DEV_TOKEN") {
-                let _ = auth.save_token(token);
-            }
 
             app.manage(AppState {
                 auth: Mutex::new(auth),
@@ -41,6 +36,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::pcloud_oauth_start,
             commands::pcloud_logout,
             commands::get_auth_status,
             commands::list_folder,

@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Cloud, Guitar, Lock } from "lucide-react";
 import { type CSSProperties, useState } from "react";
+import { pcloudOauthStart } from "../../lib/ipc";
 import Button from "../atoms/Button";
 import Spinner from "../atoms/Spinner";
 import FolderPicker from "../organisms/FolderPicker";
@@ -9,7 +10,7 @@ type ConnectScreenProps = {
   onConnected: () => void;
 };
 
-type ConnectPhase = "idle" | "consent" | "exchanging" | "folder";
+type ConnectPhase = "idle" | "consent" | "folder";
 
 const OAUTH_SCOPES = [
   "Lister tes dossiers et fichiers",
@@ -18,19 +19,26 @@ const OAUTH_SCOPES = [
 ];
 
 export default function ConnectScreen({ startAtFolder = false, onConnected }: ConnectScreenProps) {
-  const [state, setState] = useState<ConnectPhase>(startAtFolder ? "folder" : "idle");
+  const [phase, setPhase] = useState<ConnectPhase>(startAtFolder ? "folder" : "idle");
   const [oauthErr, setOauthErr] = useState<string | null>(null);
 
-  const startOAuth = () => {
+  const startOAuth = async () => {
     setOauthErr(null);
-    setState("consent");
+    setPhase("consent"); // show spinner before opening the popup
+    try {
+      await pcloudOauthStart(); // blocks until OAuth complete or cancelled
+      setPhase("folder");
+    } catch (e) {
+      setOauthErr(String(e));
+      setPhase("idle");
+    }
   };
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
       {/* panneau gauche — marque */}
       <div
-        className="to[var(--bg-2)] relative flex shrink grow basis-[46%] flex-col justify-between border-r border-r-border border-solid bg-linear-[150deg] from-[var(--gradient-from)] p-[clamp(32px,5vw,64px)]"
+        className="to[var(--bg-2)] relative flex shrink grow basis-[46%] flex-col justify-between border-r border-r-border border-solid bg-linear-[150deg] from-(--gradient-from) p-[clamp(32px,5vw,64px)]"
         style={
           {
             "--gradient-from": "color-mix(in srgb, var(--accent) 30%, var(--bg-2))",
@@ -58,7 +66,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
 
       {/* panneau droit */}
       <div className="flex shrink grow basis-[54%] items-center justify-center p-8">
-        {state !== "folder" ? (
+        {phase !== "folder" ? (
           <div className="relative w-[min(400px,100%)] rounded-lg border border-border bg-surface p-8">
             <div className="mb-5 flex items-center gap-2.5">
               <div className="flex size-8 items-center justify-center rounded-sm bg-chip text-accent">
@@ -106,11 +114,11 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
               size="lg"
               className="w-full"
               onClick={startOAuth}
-              disabled={state === "exchanging"}
+              disabled={phase === "consent"}
             >
-              {state === "exchanging" ? (
+              {phase === "consent" ? (
                 <>
-                  <Spinner light /> Échange du jeton…
+                  <Spinner light /> Connexion OAuth en cours...
                 </>
               ) : (
                 <>
@@ -127,8 +135,6 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
           <FolderPicker onConnected={onConnected} />
         )}
       </div>
-
-      {state === "consent" && <div>TODO: Show OAuth popup</div>}
     </div>
   );
 }
