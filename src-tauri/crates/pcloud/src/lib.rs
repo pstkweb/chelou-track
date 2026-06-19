@@ -194,6 +194,16 @@ impl Entry {
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
     }
+
+    pub fn is_img(&self) -> bool {
+        !self.isfolder
+            && matches!(
+                std::path::Path::new(&self.name)
+                    .extension()
+                    .and_then(|e| e.to_str()),
+                Some("png" | "jpg" | "gif")
+            )
+    }
 }
 
 #[cfg(test)]

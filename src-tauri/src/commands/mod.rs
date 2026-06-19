@@ -1,6 +1,8 @@
 // Tauri commands — the only surface the frontend can call via invoke().
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tauri::{Emitter, State};
 
 use crate::auth::AuthStore;
@@ -10,6 +12,9 @@ use crate::pcloud::PCloudClient;
 pub struct AppState {
     pub auth: Mutex<AuthStore>,
     pub manifest: ManifestStore,
+    /// Cache of pCloud download URLs: (file_id, is_video_link) → (url, fetched_at).
+    /// Avoids one getfilelink API round-trip per Range chunk during media playback.
+    pub url_cache: Mutex<HashMap<(u64, bool), (String, Instant)>>,
 }
 
 // --- Auth ---

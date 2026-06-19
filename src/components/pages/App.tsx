@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { getAuthStatus, listMethods } from "../../lib/ipc";
-import type { Method } from "../../types/model";
 import TitleBar from "../organisms/TitleBar";
 import ConnectScreen from "../templates/ConnectScreen";
+import StreamTestScreen from "../templates/StreamTestScreen";
 
 type AppState = "loading" | "no-auth" | "no-methods" | "ready";
 
 export default function App() {
   const [state, setState] = useState<AppState>("loading");
-  const [methods, setMethods] = useState<Method[]>([]);
 
   useEffect(() => {
     getAuthStatus().then((authed) => {
@@ -19,7 +18,6 @@ export default function App() {
       }
 
       return listMethods().then((methods) => {
-        setMethods(methods);
         setState(methods.length > 0 ? "ready" : "no-methods");
       });
     });
@@ -33,7 +31,7 @@ export default function App() {
 
       <div className="app-body">
         {state === "ready" ? (
-          <div>Next connected screen : {methods.length} methods</div>
+          <StreamTestScreen />
         ) : (
           <ConnectScreen
             startAtFolder={state === "no-methods"}

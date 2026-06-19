@@ -1,3 +1,4 @@
+import { alphaTab } from "@coderline/alphatab-vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -15,5 +16,5 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
   },
-  plugins: [tailwindcss(), react()],
+  plugins: [alphaTab(), react(), tailwindcss()],
 });

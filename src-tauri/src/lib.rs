@@ -5,6 +5,7 @@ mod pcloud;
 mod stream;
 
 use commands::AppState;
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -35,6 +36,7 @@ pub fn run() {
             app.manage(AppState {
                 auth: Mutex::new(auth),
                 manifest: manifest::ManifestStore::new(app_dir),
+                url_cache: Mutex::new(HashMap::new()),
             });
             Ok(())
         })

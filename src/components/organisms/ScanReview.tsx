@@ -2,8 +2,22 @@ import { Check, ChevronLeft, Download, Music } from "lucide-react";
 import { useState } from "react";
 import cn from "../../lib/cn";
 import { saveMethod } from "../../lib/ipc";
-import type { Method } from "../../types/model";
+import type { Method, SectionItem } from "../../types/model";
 import Button from "../atoms/Button";
+
+function countLessons(items: SectionItem[]): number {
+  return items.reduce((sum, item) => {
+    if (item.type === "lesson") return sum + 1;
+    return sum + countLessons(item.items);
+  }, 0);
+}
+
+function countTabs(items: SectionItem[]): number {
+  return items.reduce((sum, item) => {
+    if (item.type === "lesson") return sum + item.tabs.length;
+    return sum + countTabs(item.items);
+  }, 0);
+}
 
 type ScanReviewProps = {
   foundMethods: Method[];
@@ -21,7 +35,7 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
     });
 
   const kept = foundMethods.filter((m) => !excluded.has(m.id));
-  const totVideos = kept.reduce((s, m) => s + m.lessons.length, 0);
+  const totVideos = kept.reduce((s, m) => s + countLessons(m.items), 0);
 
   const handleImport = async () => {
     for (const method of kept) {
@@ -78,8 +92,7 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
                   {m.title}
                 </div>
                 <div className="tabular-enums text-fg3 text-xs">
-                  {m.lessons.length} vidéos · {m.lessons.reduce((c, l) => c + l.tabs.length, 0)}{" "}
-                  tabs
+                  {countLessons(m.items)} vidéos · {countTabs(m.items)} tabs
                 </div>
               </div>
             </button>

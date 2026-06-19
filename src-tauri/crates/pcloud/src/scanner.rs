@@ -2,8 +2,10 @@
 // No tab↔backing matching by name (cf. ARCHITECTURE.md §6 + §14).
 use anyhow::Result;
 use async_recursion::async_recursion;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
@@ -12,58 +14,62 @@ use uuid::Uuid;
 
 use crate::{Entry, PCloudClient};
 use chelou_manifest::{
-    BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource, TabSet,
+    BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource,
+    Section, SectionItem, TabSet,
 };
 
 /// Progress event emitted during a DFS scan — one per folder entered.
 /// Payload of the Tauri "scan:progress" event.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanEvent {
-    /// Name of the cloud folder currently being visited.
     #[serde(rename = "currentFolder")]
     pub current_folder: String,
-    /// Total cloud folders visited so far (DFS, all candidates combined).
     #[serde(rename = "foldersVisited")]
     pub folders_visited: u32,
-    /// Top-level candidate folders confirmed as methods (had ≥1 video) so far.
     #[serde(rename = "methodsFound")]
     pub methods_found: u32,
 }
+
+static BPM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?<bpm>\d+) ?bpm").unwrap());
 
 pub async fn scan_tree(
     client: &PCloudClient,
     root_folder_id: u64,
     on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
 ) -> Result<Method> {
-    let root_folder = client.list_folder(root_folder_id).await?;
+    let root = client.list_folder(root_folder_id).await?;
 
-    let mut lessons = Vec::new();
-    let mut documents = Vec::new();
-    let mut order = 0u32;
-    let mut output = ScanOutput {
-        lessons: &mut lessons,
-        documents: &mut documents,
-        order: &mut order,
-    };
+    on_progress(ScanEvent {
+        current_folder: root.name.clone(),
+        folders_visited: 0,
+        methods_found: 0,
+    });
 
-    scan_node(client, root_folder_id, &[], &[], &mut output, on_progress).await?;
+    let mut global_order = 0u32;
+    let (items, documents) = scan_folder_contents(
+        client,
+        &root.contents,
+        &[],
+        &[],
+        &mut global_order,
+        &on_progress,
+    )
+    .await?;
 
     Ok(Method {
         id: Uuid::new_v4().to_string(),
-        title: root_folder.name,
+        title: root.name,
         source: MethodSource {
             provider: "pcloud".into(),
             root_folder_id,
         },
         default_count_in_bars: 1,
-        lessons,
+        items,
         documents,
     })
 }
 
 /// Scan each direct (non-archive) subfolder of `root_folder_id` as a separate Method.
-/// Returns one Method per subfolder, in natural sort order.
-/// Use this when the picked folder is a container (e.g. "Méthodes guitare").
 pub async fn scan_methods_in_folder(
     client: &PCloudClient,
     root_folder_id: u64,
@@ -82,7 +88,6 @@ pub async fn scan_methods_in_folder(
 
     let mut methods = Vec::new();
 
-    // Shared atomic — Fn closure (not FnMut) can't hold &mut, so we use AtomicU32.
     let folders_visited = Arc::new(AtomicU32::new(0));
     let mut methods_found = 0u32;
 
@@ -100,7 +105,7 @@ pub async fn scan_methods_in_folder(
         });
 
         let method = scan_tree(client, folder_id, wrapped).await?;
-        if !method.lessons.is_empty() {
+        if method.has_lessons() {
             methods_found += 1;
         }
         methods.push(method);
@@ -109,137 +114,156 @@ pub async fn scan_methods_in_folder(
     Ok(methods)
 }
 
-struct ScanOutput<'a> {
-    lessons: &'a mut Vec<Lesson>,
-    documents: &'a mut Vec<DocumentRef>,
-    order: &'a mut u32,
-}
-
+/// Core logic: given a list of pCloud entries (one folder's contents), produce
+/// the interleaved `Vec<SectionItem>` and `Vec<DocumentRef>` for that folder.
+///
+/// Two-pass approach:
+///   Pass 1 — build the pool: collect direct audio/tab files and recurse into
+///             `tab*` / `backing*` special folders.  This must happen first so
+///             that direct video files at this level inherit the complete pool.
+///   Pass 2 — emit items in natural sort order: video → Lesson, regular folder →
+///             Section (recursive).  Special folders and audio/tab files are
+///             skipped because they already contributed to the pool.
 #[async_recursion]
-async fn scan_node(
+async fn scan_folder_contents(
     client: &PCloudClient,
-    folder_id: u64,
+    entries: &'async_recursion [Entry],
     inherited_backing: &'async_recursion [BackingTrack],
     inherited_tabs: &'async_recursion [TabSet],
-    output: &mut ScanOutput,
-    on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
-) -> Result<()> {
-    let contents = client.list_folder(folder_id).await?;
-
-    // §6: archive* → skip entirely
-    if contents.name.to_lowercase().starts_with("archive") {
-        return Ok(());
-    }
-
-    // folders_visited and methods_found are placeholders — the wrapper in
-    // scan_methods_in_folder replaces them with the real global values.
-    on_progress(ScanEvent {
-        current_folder: contents.name.clone(),
-        folders_visited: 0,
-        methods_found: 0,
-    });
+    global_order: &mut u32,
+    on_progress: &Arc<dyn Fn(ScanEvent) + Send + Sync>,
+) -> Result<(Vec<SectionItem>, Vec<DocumentRef>)> {
+    // ── Pass 1: build local pool ──────────────────────────────────────────────
 
     let mut local_backing: Vec<BackingTrack> = inherited_backing.to_vec();
     let mut local_tabs: Vec<TabSet> = inherited_tabs.to_vec();
-    let mut videos: Vec<FileRef> = Vec::new();
-    // §6 special keyword folders: contents are merged into the parent pool, not recursed.
-    let mut special_subfolders: Vec<u64> = Vec::new();
-    let mut regular_subfolders: Vec<(u64, String)> = Vec::new();
+    let mut special_ids: HashSet<u64> = HashSet::new();
+    let mut pool_docs: Vec<DocumentRef> = Vec::new();
 
-    // PDF stems that have a sibling tab file → they are tab exports, ignore them (§6)
-    let tab_stems: std::collections::HashSet<String> = contents
-        .contents
+    // Tab-file stems found at this level (used to skip PDF tab exports).
+    let tab_stems: HashSet<String> = entries
         .iter()
         .filter(|e| e.is_tab())
         .map(|e| file_stem(&e.name))
         .collect();
 
-    for entry in &contents.contents {
+    for entry in entries {
         let name_lc = entry.name.to_lowercase();
         if entry.isfolder {
-            let sub_id = match entry.folderid {
-                Some(id) => id,
-                None => continue,
-            };
-            if name_lc.starts_with("archive") {
-                // skip
-            } else if name_lc.starts_with("tab") || name_lc.starts_with("backing") {
-                // §6 special folder: merge contents into parent pool before building lessons
-                special_subfolders.push(sub_id);
-            } else {
-                regular_subfolders.push((sub_id, entry.name.clone()));
+            if name_lc.starts_with("tab") || name_lc.starts_with("backing") {
+                if let Some(id) = entry.folderid {
+                    special_ids.insert(id);
+                    let sub = client.list_folder(id).await?;
+                    let sub_tab_stems: HashSet<String> = sub
+                        .contents
+                        .iter()
+                        .filter(|e| e.is_tab())
+                        .map(|e| file_stem(&e.name))
+                        .collect();
+                    for e in &sub.contents {
+                        if e.isfolder {
+                            continue;
+                        } else if e.is_audio() {
+                            local_backing.push(backing_track(e));
+                        } else if e.is_tab() {
+                            local_tabs.push(tab_set(e));
+                        } else if e.is_pdf() && !sub_tab_stems.contains(&file_stem(&e.name)) {
+                            pool_docs.push(DocumentRef {
+                                file: file_ref(e),
+                                kind: DocKind::Pdf,
+                                title: file_stem(&e.name),
+                            });
+                        } else if e.is_img() {
+                            pool_docs.push(DocumentRef {
+                                file: file_ref(e),
+                                kind: DocKind::Image,
+                                title: file_stem(&e.name),
+                            });
+                        }
+                    }
+                }
             }
-        } else if entry.is_video() {
-            videos.push(file_ref(entry));
         } else if entry.is_audio() {
             local_backing.push(backing_track(entry));
         } else if entry.is_tab() {
             local_tabs.push(tab_set(entry));
+        }
+    }
+
+    // ── Pass 2: emit items in natural sort order (files AND folders together) ─
+
+    // Sort by index to avoid needing Clone on Entry.
+    let mut sorted: Vec<usize> = (0..entries.len()).collect();
+    sorted.sort_by(|&a, &b| natural_cmp(&entries[a].name, &entries[b].name));
+
+    let mut items: Vec<SectionItem> = Vec::new();
+    // Documents collected at this level (not from special folders).
+    let mut local_docs: Vec<DocumentRef> = pool_docs;
+
+    for idx in sorted {
+        let entry = &entries[idx];
+        let name_lc = entry.name.to_lowercase();
+
+        if entry.isfolder {
+            if name_lc.starts_with("archive") {
+                continue;
+            }
+            let sub_id = match entry.folderid {
+                Some(id) => id,
+                None => continue,
+            };
+            if special_ids.contains(&sub_id) {
+                continue; // already merged into pool in pass 1
+            }
+            // Regular folder → recurse as a Section.
+            let sub = client.list_folder(sub_id).await?;
+            on_progress(ScanEvent {
+                current_folder: sub.name.clone(),
+                folders_visited: 0,
+                methods_found: 0,
+            });
+            let (sub_items, sub_docs) = scan_folder_contents(
+                client,
+                &sub.contents,
+                &local_backing,
+                &local_tabs,
+                global_order,
+                on_progress,
+            )
+            .await?;
+            items.push(SectionItem::Section(Section {
+                id: Uuid::new_v4().to_string(),
+                title: entry.name.clone(),
+                items: sub_items,
+                documents: sub_docs,
+            }));
+        } else if entry.is_video() {
+            *global_order += 1;
+            items.push(SectionItem::Lesson(Lesson {
+                id: Uuid::new_v4().to_string(),
+                order: *global_order,
+                title: file_stem(&entry.name),
+                videos: vec![file_ref(entry)],
+                tabs: local_tabs.clone(),
+                backing_groups: group_by_radical(&local_backing),
+            }));
         } else if entry.is_pdf() && !tab_stems.contains(&file_stem(&entry.name)) {
-            output.documents.push(DocumentRef {
+            local_docs.push(DocumentRef {
                 file: file_ref(entry),
                 kind: DocKind::Pdf,
                 title: file_stem(&entry.name),
             });
+        } else if entry.is_img() {
+            local_docs.push(DocumentRef {
+                file: file_ref(entry),
+                kind: DocKind::Image,
+                title: file_stem(&entry.name),
+            });
         }
+        // audio, tab files: skip in pass 2 (handled in pass 1)
     }
 
-    // Merge special subfolder contents into local pools (§6: tab*, backing*).
-    // Done before creating lessons so videos at the same level get the full pool.
-    for sub_id in special_subfolders {
-        let sub = client.list_folder(sub_id).await?;
-        let sub_tab_stems: std::collections::HashSet<String> = sub
-            .contents
-            .iter()
-            .filter(|e| e.is_tab())
-            .map(|e| file_stem(&e.name))
-            .collect();
-        for entry in &sub.contents {
-            if entry.isfolder {
-                continue; // nested folders inside special dirs are ignored
-            } else if entry.is_audio() {
-                local_backing.push(backing_track(entry));
-            } else if entry.is_tab() {
-                local_tabs.push(tab_set(entry));
-            } else if entry.is_pdf() && !sub_tab_stems.contains(&file_stem(&entry.name)) {
-                output.documents.push(DocumentRef {
-                    file: file_ref(entry),
-                    kind: DocKind::Pdf,
-                    title: file_stem(&entry.name),
-                });
-            }
-        }
-    }
-
-    // Videos in this folder → lessons with the now-complete pool, natural-sorted
-    natural_sort_by(&mut videos, |f| f.name.clone());
-    for video in videos {
-        *(output.order) += 1;
-        output.lessons.push(Lesson {
-            id: Uuid::new_v4().to_string(),
-            order: *(output.order),
-            title: file_stem(&video.name),
-            videos: vec![video],
-            tabs: local_tabs.clone(),
-            backing_groups: group_by_radical(&local_backing),
-        });
-    }
-
-    // Recurse into regular subfolders with the completed pool, natural-sorted
-    natural_sort_by(&mut regular_subfolders, |(_, name)| name.clone());
-    for (sub_id, _) in regular_subfolders {
-        scan_node(
-            client,
-            sub_id,
-            &local_backing,
-            &local_tabs,
-            output,
-            Arc::clone(&on_progress),
-        )
-        .await?;
-    }
-
-    Ok(())
+    Ok((items, local_docs))
 }
 
 // --- Helpers ---
@@ -260,25 +284,18 @@ fn file_ref(entry: &Entry) -> FileRef {
 
 fn parse_bpm(name: &str) -> u32 {
     let lower = name.to_lowercase();
-    if let Some(start) = lower.rfind('(') {
-        if let Some(end) = lower[start..].find("bpm)") {
-            if let Ok(n) = lower[start + 1..start + end].trim().parse() {
-                return n;
-            }
+
+    if let Some(captures) = BPM_RE.captures(&lower) {
+        if let Ok(n) = captures["bpm"].parse() {
+            return n;
         }
     }
+
     0
 }
 
 fn radical_of(name: &str) -> String {
-    let stem = file_stem(name);
-    let lower = stem.to_lowercase();
-    if let Some(pos) = lower.rfind('(') {
-        if lower[pos..].contains("bpm)") {
-            return stem[..pos].trim().to_owned();
-        }
-    }
-    stem
+    BPM_RE.replace(&file_stem(name), "").trim().to_string()
 }
 
 fn backing_track(entry: &Entry) -> BackingTrack {

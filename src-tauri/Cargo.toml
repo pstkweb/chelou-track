@@ -34,6 +34,7 @@ anyhow       = "1"
 thiserror    = "1"
 log          = "0.4"
 tauri-plugin-os = "2"
+regex = "1.12.4"
 
 [profile.dev]
 incremental = true
