@@ -66,6 +66,7 @@ export const SAMPLE_METHOD = {
   documents: [
     { file: { fileId: 4, name: "sheet.pdf" }, kind: "pdf" as const, title: "Sheet" },
   ] satisfies DocumentRef[],
+  progress: {},
 } satisfies Method;
 
 // SyncPoint shape (used in leadInMsOverride override paths)

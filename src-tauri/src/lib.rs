@@ -44,6 +44,9 @@ pub fn run() {
             commands::scan_method,
             commands::save_method,
             commands::delete_method,
+            commands::mark_lesson_seen,
+            commands::mark_lesson_unseen,
+            commands::update_lesson_resume,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

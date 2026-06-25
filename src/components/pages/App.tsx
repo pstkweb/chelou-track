@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getAuthStatus, listMethods } from "../../lib/ipc";
 import TitleBar from "../organisms/TitleBar";
 import ConnectScreen from "../templates/ConnectScreen";
-import StreamTestScreen from "../templates/StreamTestScreen";
+import LibraryScreen from "../templates/LibraryScreen";
 
 type AppState = "loading" | "no-auth" | "no-methods" | "ready";
 
@@ -31,7 +31,7 @@ export default function App() {
 
       <div className="app-body">
         {state === "ready" ? (
-          <StreamTestScreen />
+          <LibraryScreen onOpen={() => {}} />
         ) : (
           <ConnectScreen
             startAtFolder={state === "no-methods"}

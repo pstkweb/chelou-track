@@ -9,6 +9,17 @@ export interface Method {
   /** Ordered mix of lessons and sections at the method root, in DFS natural sort. */
   items: SectionItem[];
   documents: DocumentRef[];
+  /**
+   * Per-lesson progress keyed by lesson `id`.
+   * Presence of an entry means the lesson has been seen at least once.
+   */
+  progress: Record<string, LessonProgress>;
+}
+
+/** Viewing progress for a single lesson. */
+export interface LessonProgress {
+  /** Playback position in ms where the user stopped mid-video. */
+  resumeMs?: number;
 }
 
 /**

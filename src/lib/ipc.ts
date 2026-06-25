@@ -58,3 +58,46 @@ export async function saveMethod(method: Method): Promise<void> {
 export async function deleteMethod(id: string): Promise<void> {
   await invoke("delete_method", { id });
 }
+
+// --- Progress ---
+
+/** Mark a lesson as seen (idempotent). */
+export async function markLessonSeen(methodId: string, lessonId: string): Promise<void> {
+  await invoke("mark_lesson_seen", { methodId, lessonId });
+}
+
+/** Remove a lesson from the progress map (mark as unseen). */
+export async function markLessonUnseen(methodId: string, lessonId: string): Promise<void> {
+  await invoke("mark_lesson_unseen", { methodId, lessonId });
+}
+
+/**
+ * Persist the playback position for a lesson (also marks it as seen).
+ * Call this periodically while the video is playing and on pause/stop.
+ */
+export async function updateLessonResume(
+  methodId: string,
+  lessonId: string,
+  resumeMs: number,
+): Promise<void> {
+  await invoke("update_lesson_resume", { methodId, lessonId, resumeMs });
+}
+
+// --- Progress helpers ---
+
+function countLessonsInItems(items: Method["items"]): number {
+  return items.reduce((n, item) => {
+    if (item.type === "lesson") return n + 1;
+    return n + countLessonsInItems(item.items);
+  }, 0);
+}
+
+/**
+ * Returns the fraction of lessons marked seen, in [0, 1].
+ * Returns 0 for empty methods.
+ */
+export function progressPct(method: Method): number {
+  const total = countLessonsInItems(method.items);
+  if (total === 0) return 0;
+  return Object.keys(method.progress).length / total;
+}

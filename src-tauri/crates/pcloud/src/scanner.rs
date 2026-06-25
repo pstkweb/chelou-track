@@ -66,6 +66,7 @@ pub async fn scan_tree(
         default_count_in_bars: 1,
         items,
         documents,
+        progress: Default::default(),
     })
 }
 

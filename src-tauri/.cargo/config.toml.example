@@ -1,0 +1,6 @@
+# Copy this file to config.toml (gitignored) and fill in your pCloud OAuth app credentials.
+# Cargo reads this automatically — no manual export needed.
+# For release CI builds, set PCLOUD_CLIENT_ID and PCLOUD_CLIENT_SECRET as GitHub Actions secrets.
+[env]
+PCLOUD_CLIENT_ID = ""
+PCLOUD_CLIENT_SECRET = ""

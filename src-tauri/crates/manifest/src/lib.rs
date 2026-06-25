@@ -3,6 +3,7 @@
 // cf. ARCHITECTURE.md §8 + §9.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +17,19 @@ pub struct Method {
     /// Use this to drive the catalogue and "next lesson" navigation.
     pub items: Vec<SectionItem>,
     pub documents: Vec<DocumentRef>,
+    /// Per-lesson progress keyed by lesson `id`.
+    /// Presence of an entry means the lesson has been seen at least once.
+    #[serde(default)]
+    pub progress: HashMap<String, LessonProgress>,
+}
+
+/// Viewing progress for a single lesson.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LessonProgress {
+    /// Playback position in ms where the user stopped mid-video.
+    /// Absent when the lesson was watched to completion or just marked seen manually.
+    #[serde(rename = "resumeMs", skip_serializing_if = "Option::is_none")]
+    pub resume_ms: Option<f64>,
 }
 
 impl Method {
@@ -166,6 +180,44 @@ impl ManifestStore {
         }
         Ok(())
     }
+
+    /// Mark a lesson as seen (inserts a default entry if not already present).
+    pub fn mark_lesson_seen(&self, method_id: &str, lesson_id: &str) -> Result<()> {
+        self.update_method(method_id, |m| {
+            m.progress.entry(lesson_id.to_owned()).or_default();
+        })
+    }
+
+    /// Remove a lesson from the progress map (mark as unseen).
+    pub fn mark_lesson_unseen(&self, method_id: &str, lesson_id: &str) -> Result<()> {
+        self.update_method(method_id, |m| {
+            m.progress.remove(lesson_id);
+        })
+    }
+
+    /// Update the resume timecode for a lesson (sets it as seen too).
+    pub fn update_lesson_resume(
+        &self,
+        method_id: &str,
+        lesson_id: &str,
+        resume_ms: f64,
+    ) -> Result<()> {
+        self.update_method(method_id, |m| {
+            m.progress
+                .entry(lesson_id.to_owned())
+                .or_default()
+                .resume_ms = Some(resume_ms);
+        })
+    }
+
+    fn update_method(&self, id: &str, f: impl FnOnce(&mut Method)) -> Result<()> {
+        let path = self.base_dir.join(format!("{id}.json"));
+        let json = std::fs::read_to_string(&path)?;
+        let mut method: Method = serde_json::from_str(&json)?;
+        f(&mut method);
+        std::fs::write(path, serde_json::to_string_pretty(&method)?)?;
+        Ok(())
+    }
 }
 
 // --- Tests ---
@@ -235,6 +287,7 @@ mod tests {
                 kind: DocKind::Pdf,
                 title: "Sheet".into(),
             }],
+            progress: HashMap::new(),
         }
     }
 

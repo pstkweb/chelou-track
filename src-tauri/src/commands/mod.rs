@@ -6,10 +6,26 @@ use std::time::Instant;
 use tauri::{Emitter, Manager, State};
 
 // Client credentials baked at compile time.
-// Set PCLOUD_CLIENT_ID and PCLOUD_CLIENT_SECRET in the environment before building,
-// e.g. via src-tauri/.cargo/config.toml (gitignored).
-const PCLOUD_CLIENT_ID: &str = env!("PCLOUD_CLIENT_ID");
-const PCLOUD_CLIENT_SECRET: &str = env!("PCLOUD_CLIENT_SECRET");
+//
+// LOCAL: put them in src-tauri/.cargo/config.toml (gitignored) — Cargo picks them
+// up automatically, no manual export needed:
+//
+//   [env]
+//   PCLOUD_CLIENT_ID   = "your-id"
+//   PCLOUD_CLIENT_SECRET = "your-secret"
+//
+// RELEASE CI: inject via GitHub Actions secrets in the release workflow only.
+//
+// option_env! (instead of env!) lets clippy/test CI compile without the variables;
+// an empty string causes a graceful auth failure at runtime, not a build failure.
+const PCLOUD_CLIENT_ID: &str = match option_env!("PCLOUD_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const PCLOUD_CLIENT_SECRET: &str = match option_env!("PCLOUD_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
 
 use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
@@ -120,4 +136,43 @@ pub async fn save_method(state: State<'_, AppState>, method: Method) -> Result<(
 #[tauri::command]
 pub async fn delete_method(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state.manifest.delete(&id).map_err(|e| e.to_string())
+}
+
+// --- Progress ---
+
+#[tauri::command]
+pub async fn mark_lesson_seen(
+    state: State<'_, AppState>,
+    method_id: String,
+    lesson_id: String,
+) -> Result<(), String> {
+    state
+        .manifest
+        .mark_lesson_seen(&method_id, &lesson_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn mark_lesson_unseen(
+    state: State<'_, AppState>,
+    method_id: String,
+    lesson_id: String,
+) -> Result<(), String> {
+    state
+        .manifest
+        .mark_lesson_unseen(&method_id, &lesson_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_lesson_resume(
+    state: State<'_, AppState>,
+    method_id: String,
+    lesson_id: String,
+    resume_ms: f64,
+) -> Result<(), String> {
+    state
+        .manifest
+        .update_lesson_resume(&method_id, &lesson_id, resume_ms)
+        .map_err(|e| e.to_string())
 }
