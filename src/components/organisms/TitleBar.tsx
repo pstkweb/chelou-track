@@ -1,17 +1,18 @@
 import { platform } from "@tauri-apps/plugin-os";
 import { Guitar } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useBreadcrumb } from "../../contexts/BreadcrumbContext";
 import Chip from "../atoms/Chip";
 import WindowControls from "../atoms/WindowControls";
 import Breadcrumb from "../molecules/Breadcrumb";
 
 type TitleBarProps = {
-  crumbs: { label: string; onClick?: () => void }[];
   connected: boolean;
 };
 
-export default function TitleBar({ crumbs, connected }: TitleBarProps) {
+export default function TitleBar({ connected }: TitleBarProps) {
   const [isMac, setIsMac] = useState<boolean>(false);
+  const {items: breadcrumb} = useBreadcrumb();
 
   useEffect(() => {
     setIsMac(platform() === "macos");
@@ -29,7 +30,7 @@ export default function TitleBar({ crumbs, connected }: TitleBarProps) {
         </div>
         <span className="font-medium text-fg2 text-xs tracking-wide">Chelou&nbsp;Track</span>
       </div>
-      {crumbs.length > 0 && <Breadcrumb items={crumbs} />}
+      {breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
       <div className="flex-1" />
       {connected && (
         <Chip className="h-6 text-xs">

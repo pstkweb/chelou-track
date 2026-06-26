@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Method } from "@/types/model";
+import { useBreadcrumb } from "../../contexts/BreadcrumbContext";
 import { listMethods } from "../../lib/ipc";
 import SearchField from "../molecules/SearchField";
 import MethodCard from "../organisms/MethodCard";
@@ -12,6 +13,12 @@ export default function LibraryScreen({ onOpen }: LibraryScreenProps) {
   const [q, setQ] = useState("");
   const [methods, setMethods] = useState<Method[]>([]);
   const [lib, setLib] = useState<Method[]>([]);
+  const { dispatch: dispatchBreadcrumb } = useBreadcrumb();
+
+  dispatchBreadcrumb({
+    type: "replace",
+    payload: [{ label: "Bibliothèque" }],
+  });
 
   useEffect(() => {
     listMethods().then(setMethods);

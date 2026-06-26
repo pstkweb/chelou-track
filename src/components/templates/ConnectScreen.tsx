@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Cloud, Guitar, Lock } from "lucide-react";
 import { type CSSProperties, useState } from "react";
+import { useBreadcrumb  } from "../../contexts/BreadcrumbContext";
 import { pcloudOauthStart } from "../../lib/ipc";
 import Button from "../atoms/Button";
 import Spinner from "../atoms/Spinner";
@@ -21,6 +22,9 @@ const OAUTH_SCOPES = [
 export default function ConnectScreen({ startAtFolder = false, onConnected }: ConnectScreenProps) {
   const [phase, setPhase] = useState<ConnectPhase>(startAtFolder ? "folder" : "idle");
   const [oauthErr, setOauthErr] = useState<string | null>(null);
+  const { dispatch: dispatchBreadcrumb } = useBreadcrumb();
+
+  dispatchBreadcrumb({ type: 'clear' });
 
   const startOAuth = async () => {
     setOauthErr(null);

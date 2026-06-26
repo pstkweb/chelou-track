@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BreadcrumbProvider } from "../../contexts/BreadcrumbContext";
 import { getAuthStatus, listMethods } from "../../lib/ipc";
 import TitleBar from "../organisms/TitleBar";
 import ConnectScreen from "../templates/ConnectScreen";
@@ -27,18 +28,20 @@ export default function App() {
 
   return (
     <div className="app-window">
-      <TitleBar connected={["no-methods", "ready"].includes(state)} crumbs={[]} />
+      <BreadcrumbProvider>
+        <TitleBar connected={["no-methods", "ready"].includes(state)} />
 
-      <div className="app-body">
-        {state === "ready" ? (
-          <LibraryScreen onOpen={() => {}} />
-        ) : (
-          <ConnectScreen
-            startAtFolder={state === "no-methods"}
-            onConnected={() => setState("ready")}
-          />
-        )}
-      </div>
+        <div className="app-body">
+          {state === "ready" ? (
+            <LibraryScreen onOpen={() => {}} />
+          ) : (
+            <ConnectScreen
+              startAtFolder={state === "no-methods"}
+              onConnected={() => setState("ready")}
+            />
+          )}
+        </div>
+      </BreadcrumbProvider>
     </div>
   );
 }
