@@ -1,9 +1,10 @@
 import { Check, ChevronLeft, Download, Music } from "lucide-react";
 import { useState } from "react";
-import cn from "../../lib/cn";
-import { saveMethod } from "../../lib/ipc";
-import type { Method, SectionItem } from "../../types/model";
-import Button from "../atoms/Button";
+import Button from "@/components/atoms/Button";
+import cn from "@/lib/cn";
+import { computeMethodColors } from "@/lib/helpers";
+import { saveMethod } from "@/lib/ipc";
+import type { Method, SectionItem } from "@/types/model";
 
 function countLessons(items: SectionItem[]): number {
   return items.reduce((sum, item) => {
@@ -47,12 +48,10 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
 
   return (
     <div
-      className="relative rounded-lg border border-border bg-surface p-7"
+      className="card p-7"
       style={{ width: "min(460px, 100%)", animation: "fadeUp .35s var(--ease)" }}
     >
-      <div className="mb-1.5 font-bold text-fg3 text-xs uppercase tracking-widest">
-        Étape 3 / 3 · Méthodes trouvées
-      </div>
+      <div className="eyebrow mb-1.5">Étape 3 / 3 · Méthodes trouvées</div>
       <h2 className="display m-0 mb-1 text-2xl">
         {foundMethods.length} méthode{foundMethods.length > 1 ? "s" : ""} détectée
         {foundMethods.length > 1 ? "s" : ""}
@@ -64,16 +63,14 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
       <div className="relative mb-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-bg3 p-1.5">
         {foundMethods.map((m) => {
           const on = !excluded.has(m.id);
+          const [color] = computeMethodColors(m.title);
 
           return (
             <button
               key={m.id}
               type="button"
               onClick={() => toggle(m.id)}
-              className={cn(
-                "flex min-h-14 w-full items-center gap-3 rounded-sm border border-transparent bg-transparent px-3 py-1.5 text-left text-fg opacity-100 transition-colors hover:bg-chip",
-                !on && "opacity-50",
-              )}
+              className={cn("row-btn min-h-14 opacity-100", !on && "opacity-50")}
             >
               <span
                 aria-hidden
@@ -84,7 +81,10 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
               >
                 {on && <Check size={13} />}
               </span>
-              <span className="flex size-9 flex-initial items-center justify-center rounded-sm bg-accent text-white">
+              <span
+                className="flex size-9 flex-initial items-center justify-center rounded-sm text-white"
+                style={{ backgroundColor: color }}
+              >
                 <Music size={17} />
               </span>
               <div className="min-w-0 flex-1">

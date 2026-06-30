@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import type { ChangeEventHandler } from "react";
-import Field from "../atoms/Field";
+import Field from "@/components/atoms/Field";
 
 type SearchFieldProps = {
   onChange: ChangeEventHandler<HTMLInputElement, HTMLInputElement>;

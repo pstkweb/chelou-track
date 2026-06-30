@@ -1,7 +1,7 @@
 // Typed wrappers around Tauri invoke() — the only way the frontend talks to pCloud.
 // Never call pCloud APIs directly from TS (cf. ARCHITECTURE.md §3 + §5).
 import { invoke } from "@tauri-apps/api/core";
-import type { Method } from "../types/model";
+import type { Method } from "@/types/model";
 
 // --- Auth ---
 

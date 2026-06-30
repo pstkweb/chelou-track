@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import React from "react";
 import type { BreadcrumbItem } from "@/contexts/BreadcrumbContext";
-import cn from "../../lib/cn";
+import cn from "@/lib/cn";
 
 type BreadcrumbProps = {
   items: BreadcrumbItem[];

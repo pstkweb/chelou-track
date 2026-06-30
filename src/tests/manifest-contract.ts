@@ -16,7 +16,7 @@ import type {
   SectionItem,
   SyncPoint,
   TabSet,
-} from "../types/model";
+} from "@/types/model";
 
 const SAMPLE_LESSON: Lesson = {
   id: "lesson-1",
@@ -24,8 +24,7 @@ const SAMPLE_LESSON: Lesson = {
   title: "Lesson 1",
   videos: [{ fileId: 1, name: "video.mp4" }] satisfies FileRef[],
   tabs: [
-    // gpx is absent — Rust serializes None with skip_serializing_if, not null
-    { id: "tab-1", title: "Tab 1", gp: { fileId: 2, name: "tab.gp" } },
+    { id: "tab-1", title: "Tab 1", files: [{ ext: "gp", file: { fileId: 2, name: "tab.gp" } }] },
   ] satisfies TabSet[],
   backingGroups: [
     {

@@ -84,13 +84,16 @@ pub struct Lesson {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabFile {
+    pub ext: String,
+    pub file: FileRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabSet {
     pub id: String,
     pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gp: Option<FileRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpx: Option<FileRef>,
+    pub files: Vec<TabFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -238,11 +241,13 @@ mod tests {
             tabs: vec![TabSet {
                 id: "tab-1".into(),
                 title: "Tab 1".into(),
-                gp: Some(FileRef {
-                    file_id: 2,
-                    name: "tab.gp".into(),
-                }),
-                gpx: None,
+                files: vec![TabFile {
+                    ext: "gp".into(),
+                    file: FileRef {
+                        file_id: 2,
+                        name: "tab.gp".into(),
+                    },
+                }],
             }],
             backing_groups: vec![BackingGroup {
                 label: "partie distorsion".into(),
@@ -329,8 +334,10 @@ mod tests {
         assert!(lesson_item.get("backing_groups").is_none());
 
         let tab0 = &lesson_item["tabs"][0];
-        assert!(tab0.get("gp").is_some(), "expected gp");
-        assert!(tab0.get("gpx").is_none(), "gpx must be absent when None");
+        let files = tab0["files"].as_array().expect("files must be an array");
+        assert_eq!(files.len(), 1, "one format in test TabSet");
+        assert_eq!(files[0]["ext"], "gp");
+        assert!(files[0].get("file").is_some());
 
         let track0 = &lesson_item["backingGroups"][0]["tracks"][0];
         assert!(track0["audio"].get("fileId").is_some(), "expected fileId");
@@ -372,8 +379,8 @@ mod tests {
         };
         assert_eq!(l1.order, 1);
         assert_eq!(l1.backing_groups[0].tracks[0].bpm, 120);
-        assert!(l1.tabs[0].gp.is_some());
-        assert!(l1.tabs[0].gpx.is_none());
+        assert_eq!(l1.tabs[0].files.len(), 1);
+        assert_eq!(l1.tabs[0].files[0].ext, "gp");
 
         let SectionItem::Section(s) = &parsed.items[1] else {
             panic!("expected section")

@@ -1,10 +1,10 @@
 import { AlertCircle, Check, Cloud, Guitar, Lock } from "lucide-react";
-import { type CSSProperties, useState } from "react";
-import { useBreadcrumb  } from "../../contexts/BreadcrumbContext";
-import { pcloudOauthStart } from "../../lib/ipc";
-import Button from "../atoms/Button";
-import Spinner from "../atoms/Spinner";
-import FolderPicker from "../organisms/FolderPicker";
+import { type CSSProperties, useEffect, useState } from "react";
+import Button from "@/components/atoms/Button";
+import Spinner from "@/components/atoms/Spinner";
+import FolderPicker from "@/components/organisms/FolderPicker";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
+import { pcloudOauthStart } from "@/lib/ipc";
 
 type ConnectScreenProps = {
   startAtFolder?: boolean;
@@ -24,7 +24,9 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
   const [oauthErr, setOauthErr] = useState<string | null>(null);
   const { dispatch: dispatchBreadcrumb } = useBreadcrumb();
 
-  dispatchBreadcrumb({ type: 'clear' });
+  useEffect(() => {
+    dispatchBreadcrumb({ type: "clear" });
+  }, [dispatchBreadcrumb]);
 
   const startOAuth = async () => {
     setOauthErr(null);
@@ -71,15 +73,13 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
       {/* panneau droit */}
       <div className="flex shrink grow basis-[54%] items-center justify-center p-8">
         {phase !== "folder" ? (
-          <div className="relative w-[min(400px,100%)] rounded-lg border border-border bg-surface p-8">
+          <div className="card w-[min(400px,100%)] p-8">
             <div className="mb-5 flex items-center gap-2.5">
               <div className="flex size-8 items-center justify-center rounded-sm bg-chip text-accent">
                 <Cloud size={20} />
               </div>
               <div>
-                <div className="font-bold text-fg3 text-xs uppercase tracking-wide">
-                  Étape 1 / 3
-                </div>
+                <div className="eyebrow">Étape 1 / 3</div>
                 <h2 className="display m-0 text-2xl">Connexion à pCloud</h2>
               </div>
             </div>

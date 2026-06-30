@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { BreadcrumbProvider } from "../../contexts/BreadcrumbContext";
-import { getAuthStatus, listMethods } from "../../lib/ipc";
-import TitleBar from "../organisms/TitleBar";
-import ConnectScreen from "../templates/ConnectScreen";
-import LibraryScreen from "../templates/LibraryScreen";
+import TitleBar from "@/components/organisms/TitleBar";
+import ConnectScreen from "@/components/templates/ConnectScreen";
+import LibraryScreen from "@/components/templates/LibraryScreen";
+import MethodScreen from "@/components/templates/MethodScreen";
+import { BreadcrumbProvider } from "@/contexts/BreadcrumbContext";
+import { NavigationProvider, useNavigation } from "@/contexts/NavigationContext";
+import { getAuthStatus, listMethods } from "@/lib/ipc";
 
 type AppState = "loading" | "no-auth" | "no-methods" | "ready";
+
+function AuthenticatedView() {
+  const { screen } = useNavigation();
+  if (screen.id === "method") return <MethodScreen method={screen.method} />;
+  // screen.id === "player" → à venir
+  return <LibraryScreen />;
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>("loading");
@@ -33,7 +42,9 @@ export default function App() {
 
         <div className="app-body">
           {state === "ready" ? (
-            <LibraryScreen onOpen={() => {}} />
+            <NavigationProvider>
+              <AuthenticatedView />
+            </NavigationProvider>
           ) : (
             <ConnectScreen
               startAtFolder={state === "no-methods"}

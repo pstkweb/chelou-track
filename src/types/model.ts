@@ -55,11 +55,16 @@ export interface Lesson {
   backingGroups: BackingGroup[];
 }
 
+export interface TabFile {
+  ext: string;
+  file: FileRef;
+}
+
 export interface TabSet {
   id: string;
   title: string;
-  gp?: FileRef; // priority
-  gpx?: FileRef; // fallback
+  /** Formats disponibles, dans l'ordre de préférence : gp > gpx > gp5 > gp4 > gp3 */
+  files: TabFile[];
 }
 
 export interface BackingGroup {

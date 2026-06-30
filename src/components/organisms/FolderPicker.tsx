@@ -1,14 +1,14 @@
 import { AlertCircle, ChevronRight, Cloud, Folder, Search } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import cn from "../../lib/cn";
-import type { FolderEntry } from "../../lib/ipc";
-import { listFolder } from "../../lib/ipc";
-import type { Method } from "../../types/model";
-import Button from "../atoms/Button";
-import Chip from "../atoms/Chip";
-import Spinner from "../atoms/Spinner";
-import ScanProgress from "./ScanProgress";
-import ScanReview from "./ScanReview";
+import Button from "@/components/atoms/Button";
+import Chip from "@/components/atoms/Chip";
+import Spinner from "@/components/atoms/Spinner";
+import ScanProgress from "@/components/organisms/ScanProgress";
+import ScanReview from "@/components/organisms/ScanReview";
+import cn from "@/lib/cn";
+import type { FolderEntry } from "@/lib/ipc";
+import { listFolder } from "@/lib/ipc";
+import type { Method } from "@/types/model";
 
 type Crumb = { id: number; name: string };
 
@@ -96,10 +96,8 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
   }
 
   return (
-    <div className="relative w-[min(440px,100%)] animate-[fadeUp_.35s_var(--ease)] rounded-lg border border-border bg-surface p-7">
-      <div className="mb-1.5 font-bold text-fg3 text-xs uppercase tracking-wide">
-        Étape 2 / 3 · pCloud connecté
-      </div>
+    <div className="card w-[min(440px,100%)] animate-[fadeUp_.35s_var(--ease)] p-7">
+      <div className="eyebrow mb-1.5">Étape 2 / 3 · pCloud connecté</div>
       <h2 className="display m-0 mb-1 text-2xl">Où sont tes méthodes ?</h2>
       <p className="m-0 mb-4 text-fg2 text-xs leading-normal">
         Choisis un dossier : on en analysera le contenu pour y repérer les méthodes.
@@ -153,7 +151,7 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
               type="button"
               key={entry.folderid}
               onClick={() => enter(entry)}
-              className="flex min-h-10 w-full items-center gap-3 rounded-sm border border-transparent bg-transparent px-3 py-1.5 text-left text-fg transition-colors hover:bg-chip"
+              className="row-btn min-h-10"
             >
               <Folder size={18} className="text-fg3" />
               <div className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-sm">

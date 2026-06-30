@@ -41,7 +41,7 @@ function breadcrumbReducer(items: BreadcrumbItem[], action: BreadcrumbAction) {
 
 export function BreadcrumbProvider({ children }: { children: React.ReactNode }) {
   const [items, dispatch] = useReducer(breadcrumbReducer, []);
-  const contextValue = useMemo(() => ({items, dispatch}), [items]);
+  const contextValue = useMemo(() => ({ items, dispatch }), [items]);
 
   return <BreadcrumbContext.Provider value={contextValue}>{children}</BreadcrumbContext.Provider>;
 }
@@ -50,7 +50,7 @@ export function useBreadcrumb() {
   const context = useContext(BreadcrumbContext);
 
   if (context === undefined) {
-    throw new Error('useBreadcrumb must be used within a BreadcrumbProvider');
+    throw new Error("useBreadcrumb must be used within a BreadcrumbProvider");
   }
 
   return context;

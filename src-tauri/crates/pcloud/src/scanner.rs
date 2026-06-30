@@ -5,7 +5,7 @@ use async_recursion::async_recursion;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{Entry, PCloudClient};
 use chelou_manifest::{
     BackingGroup, BackingTrack, DocKind, DocumentRef, FileRef, Lesson, Method, MethodSource,
-    Section, SectionItem, TabSet,
+    Section, SectionItem, TabFile, TabSet,
 };
 
 /// Progress event emitted during a DFS scan — one per folder entered.
@@ -31,6 +31,13 @@ pub struct ScanEvent {
 }
 
 static BPM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?<bpm>\d+) ?bpm").unwrap());
+
+// Strips leading numeric/CHAP prefixes from folder names used as section titles.
+// Handles: "1 - Titre", "01. Titre", "CHAP 1 Titre", "1 CHAP 1 - Titre", etc.
+// Falls back to the original name if stripping would produce an empty string.
+static SECTION_PREFIX_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^(?:\d+\s*[-.]?\s*|chap(?:itre)?(?:\s+\d+)?\s*[-.]?\s*)+").unwrap()
+});
 
 pub async fn scan_tree(
     client: &PCloudClient,
@@ -138,6 +145,8 @@ async fn scan_folder_contents(
 
     let mut local_backing: Vec<BackingTrack> = inherited_backing.to_vec();
     let mut local_tabs: Vec<TabSet> = inherited_tabs.to_vec();
+    // Raw tab files collected at this level — grouped into TabSets after Pass 1.
+    let mut raw_tabs: Vec<(String, String, FileRef)> = Vec::new(); // (stem, ext, file_ref)
     let mut special_ids: HashSet<u64> = HashSet::new();
     let mut pool_docs: Vec<DocumentRef> = Vec::new();
 
@@ -167,8 +176,30 @@ async fn scan_folder_contents(
                         } else if e.is_audio() {
                             local_backing.push(backing_track(e));
                         } else if e.is_tab() {
-                            local_tabs.push(tab_set(e));
+                            raw_tabs.push((file_stem(&e.name), ext_of(&e.name), file_ref(e)));
                         } else if e.is_pdf() && !sub_tab_stems.contains(&file_stem(&e.name)) {
+                            pool_docs.push(DocumentRef {
+                                file: file_ref(e),
+                                kind: DocKind::Pdf,
+                                title: file_stem(&e.name),
+                            });
+                        } else if e.is_img() {
+                            pool_docs.push(DocumentRef {
+                                file: file_ref(e),
+                                kind: DocKind::Image,
+                                title: file_stem(&e.name),
+                            });
+                        }
+                    }
+                }
+            } else if name_lc.contains("documents utile") || name_lc.contains("document utile") {
+                if let Some(id) = entry.folderid {
+                    special_ids.insert(id);
+                    let sub = client.list_folder(id).await?;
+                    for e in &sub.contents {
+                        if e.isfolder {
+                            continue;
+                        } else if e.is_pdf() {
                             pool_docs.push(DocumentRef {
                                 file: file_ref(e),
                                 kind: DocKind::Pdf,
@@ -187,9 +218,11 @@ async fn scan_folder_contents(
         } else if entry.is_audio() {
             local_backing.push(backing_track(entry));
         } else if entry.is_tab() {
-            local_tabs.push(tab_set(entry));
+            raw_tabs.push((file_stem(&entry.name), ext_of(&entry.name), file_ref(entry)));
         }
     }
+
+    local_tabs.extend(group_raw_tabs(raw_tabs));
 
     // ── Pass 2: emit items in natural sort order (files AND folders together) ─
 
@@ -234,7 +267,7 @@ async fn scan_folder_contents(
             .await?;
             items.push(SectionItem::Section(Section {
                 id: Uuid::new_v4().to_string(),
-                title: entry.name.clone(),
+                title: clean_section_title(&entry.name),
                 items: sub_items,
                 documents: sub_docs,
             }));
@@ -268,6 +301,16 @@ async fn scan_folder_contents(
 }
 
 // --- Helpers ---
+
+fn clean_section_title(name: &str) -> String {
+    let cleaned = SECTION_PREFIX_RE.replace(name, "");
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        name.trim().to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
 
 fn file_stem(name: &str) -> String {
     std::path::Path::new(name)
@@ -308,19 +351,27 @@ fn backing_track(entry: &Entry) -> BackingTrack {
     }
 }
 
-fn tab_set(entry: &Entry) -> TabSet {
-    let ext = std::path::Path::new(&entry.name)
+fn ext_of(name: &str) -> String {
+    std::path::Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
-        .to_lowercase();
-    let r = file_ref(entry);
-    TabSet {
-        id: Uuid::new_v4().to_string(),
-        title: file_stem(&entry.name),
-        gp: if ext == "gp" { Some(r.clone()) } else { None },
-        gpx: if ext == "gpx" { Some(r) } else { None },
+        .to_lowercase()
+}
+
+fn group_raw_tabs(raw: Vec<(String, String, FileRef)>) -> Vec<TabSet> {
+    let mut by_stem: BTreeMap<String, Vec<TabFile>> = BTreeMap::new();
+    for (stem, ext, file) in raw {
+        by_stem.entry(stem).or_default().push(TabFile { ext, file });
     }
+    by_stem
+        .into_iter()
+        .map(|(title, files)| TabSet {
+            id: Uuid::new_v4().to_string(),
+            title,
+            files,
+        })
+        .collect()
 }
 
 fn group_by_radical(tracks: &[BackingTrack]) -> Vec<BackingGroup> {
@@ -380,4 +431,55 @@ fn consume_number(iter: &mut std::iter::Peekable<std::str::Chars>) -> u64 {
         s.push(iter.next().unwrap());
     }
     s.parse().unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_section_title;
+
+    #[test]
+    fn strips_chap_prefix() {
+        assert_eq!(clean_section_title("CHAP 1 Introduction"), "Introduction");
+        assert_eq!(clean_section_title("CHAP 1 - Introduction"), "Introduction");
+        assert_eq!(clean_section_title("chap 3 Les gammes"), "Les gammes");
+        assert_eq!(clean_section_title("CHAPITRE 2 - Les gammes"), "Les gammes");
+        assert_eq!(clean_section_title("CHAPITRE 2 Les gammes"), "Les gammes");
+        assert_eq!(
+            clean_section_title("1 - CHAPITRE - Les gammes"),
+            "Les gammes"
+        );
+        assert_eq!(clean_section_title("CHAPITRE - Les gammes"), "Les gammes");
+    }
+
+    #[test]
+    fn strips_numeric_prefix() {
+        assert_eq!(clean_section_title("1 - Introduction"), "Introduction");
+        assert_eq!(clean_section_title("01 - Introduction"), "Introduction");
+        assert_eq!(clean_section_title("1. Introduction"), "Introduction");
+        assert_eq!(clean_section_title("1 Introduction"), "Introduction");
+    }
+
+    #[test]
+    fn strips_combined_prefix() {
+        assert_eq!(clean_section_title("1 CHAP 1 Introduction"), "Introduction");
+        assert_eq!(
+            clean_section_title("01 - CHAP 1 - Introduction"),
+            "Introduction"
+        );
+    }
+
+    #[test]
+    fn leaves_clean_titles_unchanged() {
+        assert_eq!(clean_section_title("Introduction"), "Introduction");
+        assert_eq!(
+            clean_section_title("Les gammes pentatoniques"),
+            "Les gammes pentatoniques"
+        );
+    }
+
+    #[test]
+    fn fallback_when_stripping_leaves_empty() {
+        assert_eq!(clean_section_title("CHAP 1"), "CHAP 1");
+        assert_eq!(clean_section_title("1"), "1");
+    }
 }

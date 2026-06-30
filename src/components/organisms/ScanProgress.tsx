@@ -1,10 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import { AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import Button from "@/components/atoms/Button";
+import Spinner from "@/components/atoms/Spinner";
+import { type ScanProgressEvent, scanMethod } from "@/lib/ipc";
 import type { Method } from "@/types/model";
-import { type ScanProgressEvent, scanMethod } from "../../lib/ipc";
-import Button from "../atoms/Button";
-import Spinner from "../atoms/Spinner";
 
 type ScanProgressProps = {
   folderId: number;
@@ -47,12 +47,10 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
 
   return (
     <div
-      className="relative rounded-lg border border-border bg-surface p-7"
+      className="card p-7"
       style={{ width: "min(440px, 100%)", animation: "fadeUp .35s var(--ease)" }}
     >
-      <div className="mb-1.5 font-bold text-fg3 text-xs uppercase tracking-widest">
-        Étape 2 / 3 · Analyse
-      </div>
+      <div className="eyebrow mb-1.5">Étape 2 / 3 · Analyse</div>
       <h2 className="display m-0 mb-1 text-2xl">Analyse du dossier…</h2>
       <p className="m-0 mb-5 text-fg2 text-sm/normal">
         On parcourt <span className="mono text-fg3">{path}</span> à la recherche de structures de

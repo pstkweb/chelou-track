@@ -42,21 +42,11 @@ export default function WindowControls() {
   };
 
   return (
-    <fieldset
-      className="flex gap-0.5 [-webkit-app-region:no-drag]"
-      aria-label="Contrôles de la fenêtre"
-    >
-      <button
-        className="flex h-6 w-8 items-center justify-center rounded-sm border-0 bg-transparent p-0 text-fg3 transition-colors hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-solid active:bg-border"
-        type="button"
-        aria-label="Réduire"
-        title="Réduire"
-        onClick={handleMinimize}
-      >
+    <fieldset className="win-ctl" aria-label="Contrôles de la fenêtre">
+      <button type="button" aria-label="Réduire" title="Réduire" onClick={handleMinimize}>
         <Minus size={15} />
       </button>
       <button
-        className="flex h-6 w-8 items-center justify-center rounded-sm border-0 bg-transparent p-0 text-fg3 transition-colors hover:bg-chip hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-solid active:bg-border"
         type="button"
         aria-label={isMaximized ? "Restaurer" : "Agrandir"}
         title={isMaximized ? "Restaurer" : "Agrandir"}
@@ -65,7 +55,7 @@ export default function WindowControls() {
         {isMaximized ? <Copy size={15} /> : <Square size={15} />}
       </button>
       <button
-        className="flex h-6 w-8 items-center justify-center rounded-sm border-0 bg-transparent p-0 text-fg3 transition-colors hover:bg-red-600 hover:text-white focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-solid active:bg-border"
+        className="close"
         type="button"
         aria-label="Fermer la fenêtre"
         title="Fermer"
