@@ -39,7 +39,7 @@ interface NavigationContextValue {
   screen: Screen;
   goToLibrary: () => void;
   goToMethod: (method: Method) => void;
-  openPart: (lesson: Lesson, chapter: Chapter, mediaType: MediaType) => void;
+  openLesson: (lesson: Lesson, chapter: Chapter, mediaType: MediaType) => void;
 }
 
 const NavigationContext = createContext<NavigationContextValue | undefined>(undefined);
@@ -50,7 +50,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   const goToLibrary = useCallback(() => dispatch({ type: "library" }), []);
   const goToMethod = useCallback((method: Method) => dispatch({ type: "method", method }), []);
-  const openPart = useCallback(
+  const openLesson = useCallback(
     (lesson: Lesson, chapter: Chapter, mediaType: MediaType) =>
       dispatch({ type: "player", lesson, chapter, mediaType }),
     [],
@@ -77,8 +77,8 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   }, [screen, dispatchBreadcrumb, goToLibrary, goToMethod]);
 
   const value = useMemo(
-    () => ({ screen, goToLibrary, goToMethod, openPart }),
-    [screen, goToLibrary, goToMethod, openPart],
+    () => ({ screen, goToLibrary, goToMethod, openLesson }),
+    [screen, goToLibrary, goToMethod, openLesson],
   );
 
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;

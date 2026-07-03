@@ -22,7 +22,7 @@ const SAMPLE_LESSON: Lesson = {
   id: "lesson-1",
   order: 1,
   title: "Lesson 1",
-  videos: [{ fileId: 1, name: "video.mp4" }] satisfies FileRef[],
+  video: { fileId: 1, name: "video.mp4" } satisfies FileRef,
   tabs: [
     { id: "tab-1", title: "Tab 1", files: [{ ext: "gp", file: { fileId: 2, name: "tab.gp" } }] },
   ] satisfies TabSet[],

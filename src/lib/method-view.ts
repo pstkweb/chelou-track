@@ -5,6 +5,7 @@ export type LessonStatus = "todo" | "current" | "done";
 type LessonStat = {
   lessonId: string;
   status: LessonStatus;
+  resumeMs: number | undefined;
 };
 
 type ChapterMeta = {
@@ -53,7 +54,11 @@ function iterateFolder(
       }
     }
 
-    stats.lessonsStatus.push({ lessonId: item.id, status });
+    stats.lessonsStatus.push({
+      lessonId: item.id,
+      status,
+      resumeMs: methodProgress[item.id]?.resumeMs,
+    });
     stats.tabsCount += item.tabs.length;
   } else {
     for (const subItem of item.items) {
@@ -65,6 +70,7 @@ function iterateFolder(
 export type MethodStats = {
   chaptersCount: number;
   documentsCount: number;
+  hasProgress: boolean;
   tabsCount: number;
   videosCount: number;
   videosDone: number;
@@ -85,6 +91,7 @@ export function computeStats(method: Method): MethodStats {
   return {
     chaptersCount: method.items.filter((item) => item.type === "section").length,
     documentsCount: method.documents.length,
+    hasProgress: Object.keys(method.progress).length > 0,
     tabsCount,
     videosCount: lessonsCount,
     videosDone: lessonsDoneCount,
@@ -128,7 +135,56 @@ function findLesson(lessonId: string, items: SectionItem[]): Lesson | undefined 
     }
 
     if (item.type === "section") {
-      return findLesson(lessonId, item.items);
+      const found = findLesson(lessonId, item.items);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
+}
+
+export function searchSiblings(chapter: Chapter, lessonOrder: number) {
+  return findSiblings(lessonOrder, chapter.items);
+}
+
+function findSiblings(lessonOrder: number, items: SectionItem[]): [Lesson | null, Lesson | null] {
+  let prev = null;
+  let next = null;
+
+  for (const item of items) {
+    if (item.type === "lesson") {
+      if (item.order === lessonOrder - 1) {
+        prev = item;
+      } else if (item.order === lessonOrder + 1) {
+        next = item;
+      }
+    }
+
+    if (prev && next) {
+      break;
+    }
+
+    if (item.type === "section") {
+      const [foundPrev, foundNext] = findSiblings(lessonOrder, item.items);
+
+      prev ??= foundPrev;
+      next ??= foundNext;
+    }
+  }
+
+  return [prev, next];
+}
+
+export function getNextLessonId(method: Method, chapters: Chapter[]): string | undefined {
+  if (Object.keys(method.progress).length === 0) {
+    return chapters[0]?.lessonsStatus[0]?.lessonId;
+  }
+
+  for (const chapter of chapters) {
+    for (const stat of chapter.lessonsStatus) {
+      if (stat.status !== "done") {
+        return stat.lessonId;
+      }
     }
   }
 

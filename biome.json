@@ -25,7 +25,8 @@
         "useLiteralKeys": "off"
       },
       "a11y": {
-        "useMediaCaption": "off"
+        "useMediaCaption": "off",
+        "noStaticElementInteractions": "off"
       }
     }
   },

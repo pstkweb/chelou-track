@@ -277,7 +277,7 @@ async fn scan_folder_contents(
                 id: Uuid::new_v4().to_string(),
                 order: *global_order,
                 title: file_stem(&entry.name),
-                videos: vec![file_ref(entry)],
+                video: file_ref(entry),
                 tabs: local_tabs.clone(),
                 backing_groups: group_by_radical(&local_backing),
             }));

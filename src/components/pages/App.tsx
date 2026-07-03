@@ -1,18 +1,35 @@
 import { useEffect, useState } from "react";
 import TitleBar from "@/components/organisms/TitleBar";
 import ConnectScreen from "@/components/templates/ConnectScreen";
+import LessonScreen from "@/components/templates/LessonScreen";
 import LibraryScreen from "@/components/templates/LibraryScreen";
 import MethodScreen from "@/components/templates/MethodScreen";
 import { BreadcrumbProvider } from "@/contexts/BreadcrumbContext";
 import { NavigationProvider, useNavigation } from "@/contexts/NavigationContext";
-import { getAuthStatus, listMethods } from "@/lib/ipc";
+import { getAuthStatus, listMethods, markLessonSeen } from "@/lib/ipc";
 
 type AppState = "loading" | "no-auth" | "no-methods" | "ready";
 
 function AuthenticatedView() {
   const { screen } = useNavigation();
+
   if (screen.id === "method") return <MethodScreen method={screen.method} />;
-  // screen.id === "player" → à venir
+  if (screen.id === "player") {
+    const handleVideoEnded = () => {
+      markLessonSeen(screen.method.id, screen.lesson.id);
+    };
+
+    return (
+      <LessonScreen
+        key={screen.lesson.id}
+        chapter={screen.chapter}
+        method={screen.method}
+        lesson={screen.lesson}
+        onVideoEnd={handleVideoEnded}
+      />
+    );
+  }
+
   return <LibraryScreen />;
 }
 

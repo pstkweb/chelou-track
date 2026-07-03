@@ -50,7 +50,7 @@ export interface Lesson {
   /** Global DFS viewing order across the whole method (1-based). */
   order: number;
   title: string;
-  videos: FileRef[];
+  video: FileRef;
   tabs: TabSet[];
   backingGroups: BackingGroup[];
 }

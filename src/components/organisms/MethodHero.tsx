@@ -13,7 +13,7 @@ type MethodHeroProps = {
 };
 
 export default function MethodHero({ title, methodStats, currentLesson }: MethodHeroProps) {
-  const { openPart } = useNavigation();
+  const { openLesson } = useNavigation();
   const [c1, c2] = computeMethodColors(title);
   const progressPct =
     methodStats.videosCount === 0 ? 0 : methodStats.videosDone / methodStats.videosCount;
@@ -48,9 +48,10 @@ export default function MethodHero({ title, methodStats, currentLesson }: Method
             <Button
               variant="primary"
               size="lg"
-              onClick={() => openPart(currentLesson.lesson, currentLesson.chapter, "video")}
+              onClick={() => openLesson(currentLesson.lesson, currentLesson.chapter, "video")}
             >
-              <Play size={18} /> Reprendre · {currentLesson.lesson.title.slice(0, 28)}
+              <Play size={18} /> {methodStats.hasProgress ? "Reprendre" : "Commencer"} ·{" "}
+              {currentLesson.lesson.title.slice(0, 28)}
               {currentLesson.lesson.title.length > 28 ? "…" : ""}
             </Button>
           )}

@@ -77,7 +77,7 @@ pub struct Lesson {
     /// Global DFS viewing order across the whole method (1-based).
     pub order: u32,
     pub title: String,
-    pub videos: Vec<FileRef>,
+    pub video: FileRef,
     pub tabs: Vec<TabSet>,
     #[serde(rename = "backingGroups")]
     pub backing_groups: Vec<BackingGroup>,
@@ -184,10 +184,13 @@ impl ManifestStore {
         Ok(())
     }
 
-    /// Mark a lesson as seen (inserts a default entry if not already present).
+    /// Mark a lesson as seen and clear any resume position (lesson watched to completion).
     pub fn mark_lesson_seen(&self, method_id: &str, lesson_id: &str) -> Result<()> {
         self.update_method(method_id, |m| {
-            m.progress.entry(lesson_id.to_owned()).or_default();
+            m.progress
+                .entry(lesson_id.to_owned())
+                .or_default()
+                .resume_ms = None;
         })
     }
 
@@ -234,10 +237,10 @@ mod tests {
             id: format!("lesson-{order}"),
             order,
             title: format!("Lesson {order}"),
-            videos: vec![FileRef {
+            video: FileRef {
                 file_id: 1,
                 name: "video.mp4".into(),
-            }],
+            },
             tabs: vec![TabSet {
                 id: "tab-1".into(),
                 title: "Tab 1".into(),

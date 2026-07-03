@@ -12,7 +12,7 @@ type SidebarNavProps = {
 
 export default function SidebarNav({ chapters, currentChapterId }: SidebarNavProps) {
   const [selectedChapterId, setSelectedChapterId] = useState(
-    currentChapterId || chapters.at(0)?.id,
+    currentChapterId ?? chapters.at(0)?.id,
   );
   const selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId);
 
@@ -25,8 +25,8 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
   }
 
   return (
-    <div className="card grid min-h-120 grid-cols-[320px_1fr] overflow-hidden">
-      <div className="scroll border-border border-r bg-bg2 p-2">
+    <div className="card grid min-h-120 grid-cols-[320px_1fr] overflow-clip">
+      <div className="scroll sticky top-0 max-h-[calc(100vh-38px)] self-start border-border border-r bg-bg2 p-2">
         {chapters.map((chapter) => {
           const lessonsCount = chapter.lessonsStatus.length;
           const done = chapter.lessonsStatus.filter((stat) => stat.status === "done").length;
@@ -73,7 +73,7 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
           <SectionNodes
             items={selectedChapter.items}
             chapter={selectedChapter}
-            currentPartId={currentChapterId}
+            currentChapterId={currentChapterId}
           />
         </div>
       )}

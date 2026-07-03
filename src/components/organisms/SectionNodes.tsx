@@ -6,14 +6,14 @@ import type { SectionItem } from "@/types/model";
 type SectionNodesProps = {
   items: SectionItem[];
   chapter: Chapter;
-  currentPartId: string | undefined;
+  currentChapterId: string | undefined;
   depth?: number;
 };
 
 export default function SectionNodes({
   items,
   chapter,
-  currentPartId,
+  currentChapterId,
   depth = 0,
 }: SectionNodesProps) {
   return items.map((item) => {
@@ -24,7 +24,7 @@ export default function SectionNodes({
           lesson={item}
           status={chapter.lessonsStatus.find((stat) => stat.lessonId === item.id)?.status || "todo"}
           chapter={chapter}
-          active={item.id === currentPartId}
+          active={item.id === currentChapterId}
         />
       );
     }
@@ -48,7 +48,7 @@ export default function SectionNodes({
           <SectionNodes
             items={item.items}
             chapter={chapter}
-            currentPartId={currentPartId}
+            currentChapterId={currentChapterId}
             depth={depth + 1}
           />
         </div>

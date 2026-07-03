@@ -1,10 +1,16 @@
 import { useMemo } from "react";
-import { computeStats, getChapters, searchChapter, searchLesson } from "@/lib/method-view";
+import {
+  computeStats,
+  getChapters,
+  getNextLessonId,
+  searchChapter,
+  searchLesson,
+} from "@/lib/method-view";
 import type { Method } from "@/types/model";
 
 export default function useMethodView(method: Method) {
-  const currentLessonId = Object.keys(method.progress).at(-1);
   const chapters = useMemo(() => getChapters(method), [method]);
+  const currentLessonId = getNextLessonId(method, chapters);
   const stats = useMemo(() => computeStats(method), [method]);
   const currentLesson = useMemo(
     () => (currentLessonId ? searchLesson(chapters, currentLessonId) : undefined),

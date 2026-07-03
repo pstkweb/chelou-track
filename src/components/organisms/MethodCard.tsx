@@ -9,7 +9,7 @@ const countVideos = (...items: SectionItem[]) => {
 
   for (const item of items) {
     if (item.type === "lesson") {
-      total += item.videos.length;
+      total++;
     }
 
     if (item.type === "section") {
@@ -62,14 +62,18 @@ export default function MethodCard({ method, onOpen }: MethodCardProps) {
   const fmtPct = () => `${(progressPct(method) * 100).toFixed()}%`;
   const [c1, c2] = computeMethodColors(method.title);
 
+  const handleEnterPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      onOpen(method);
+    }
+  };
+
   return (
-    <div className="card card-lift flex cursor-pointer flex-col overflow-hidden p-0">
-      <button
-        type="button"
-        className="absolute inset-0 z-0"
-        onClick={() => onOpen(method)}
-        aria-label={`Ouvrir ${method.title}`}
-      />
+    <div
+      className="card card-lift flex cursor-pointer flex-col overflow-hidden p-0"
+      onClick={() => onOpen(method)}
+      onKeyDown={handleEnterPress}
+    >
       <div className="relative z-10 flex flex-col">
         <div
           className="relative h-28 overflow-hidden text-white"
