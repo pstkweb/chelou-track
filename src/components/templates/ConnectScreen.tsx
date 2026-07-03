@@ -1,42 +1,42 @@
-import { AlertCircle, Check, Cloud, Guitar, Lock } from "lucide-react";
-import { type CSSProperties, useEffect, useState } from "react";
-import Button from "@/components/atoms/Button";
-import Spinner from "@/components/atoms/Spinner";
-import FolderPicker from "@/components/organisms/FolderPicker";
-import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
-import { pcloudOauthStart } from "@/lib/ipc";
+import { AlertCircle, Check, Cloud, Guitar, Lock } from 'lucide-react';
+import { type CSSProperties, useEffect, useState } from 'react';
+import Button from '@/components/atoms/Button';
+import Spinner from '@/components/atoms/Spinner';
+import FolderPicker from '@/components/organisms/FolderPicker';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
+import { pcloudOauthStart } from '@/lib/ipc';
 
 type ConnectScreenProps = {
   startAtFolder?: boolean;
   onConnected: () => void;
 };
 
-type ConnectPhase = "idle" | "consent" | "folder";
+type ConnectPhase = 'idle' | 'consent' | 'folder';
 
 const OAUTH_SCOPES = [
-  "Lister tes dossiers et fichiers",
-  "Lire tes méthodes vidéo, PDF et tablatures",
-  "Aucune modification ni suppression",
+  'Lister tes dossiers et fichiers',
+  'Lire tes méthodes vidéo, PDF et tablatures',
+  'Aucune modification ni suppression',
 ];
 
 export default function ConnectScreen({ startAtFolder = false, onConnected }: ConnectScreenProps) {
-  const [phase, setPhase] = useState<ConnectPhase>(startAtFolder ? "folder" : "idle");
+  const [phase, setPhase] = useState<ConnectPhase>(startAtFolder ? 'folder' : 'idle');
   const [oauthErr, setOauthErr] = useState<string | null>(null);
   const { dispatch: dispatchBreadcrumb } = useBreadcrumb();
 
   useEffect(() => {
-    dispatchBreadcrumb({ type: "clear" });
+    dispatchBreadcrumb({ type: 'clear' });
   }, [dispatchBreadcrumb]);
 
   const startOAuth = async () => {
     setOauthErr(null);
-    setPhase("consent"); // show spinner before opening the popup
+    setPhase('consent'); // show spinner before opening the popup
     try {
       await pcloudOauthStart(); // blocks until OAuth complete or cancelled
-      setPhase("folder");
+      setPhase('folder');
     } catch (e) {
       setOauthErr(String(e));
-      setPhase("idle");
+      setPhase('idle');
     }
   };
 
@@ -47,7 +47,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
         className="to[var(--bg-2)] relative flex shrink grow basis-[46%] flex-col justify-between border-r border-r-border border-solid bg-linear-[150deg] from-(--gradient-from) p-[clamp(32px,5vw,64px)]"
         style={
           {
-            "--gradient-from": "color-mix(in srgb, var(--accent) 30%, var(--bg-2))",
+            '--gradient-from': 'color-mix(in srgb, var(--accent) 30%, var(--bg-2))',
           } as CSSProperties
         }
       >
@@ -72,7 +72,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
 
       {/* panneau droit */}
       <div className="flex shrink grow basis-[54%] items-center justify-center p-8">
-        {phase !== "folder" ? (
+        {phase !== 'folder' ? (
           <div className="card w-[min(400px,100%)] p-8">
             <div className="mb-5 flex items-center gap-2.5">
               <div className="flex size-8 items-center justify-center rounded-sm bg-chip text-accent">
@@ -97,7 +97,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
             )}
 
             <p className="m-0 mb-4 text-fg2 text-sm/relaxed">
-              Chelou Track utilise l'authentification sécurisée{" "}
+              Chelou Track utilise l'authentification sécurisée{' '}
               <strong className="text-fg">OAuth&nbsp;2.0</strong> de pCloud. Tu seras redirigé vers
               pCloud pour autoriser l'accès — ton mot de passe ne transite jamais par l'app.
             </p>
@@ -118,9 +118,9 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
               size="lg"
               className="w-full"
               onClick={startOAuth}
-              disabled={phase === "consent"}
+              disabled={phase === 'consent'}
             >
-              {phase === "consent" ? (
+              {phase === 'consent' ? (
                 <>
                   <Spinner light /> Connexion OAuth en cours...
                 </>

@@ -1,5 +1,16 @@
 /* Chelou Track — classes de composants réutilisables */
 
+.display {
+  font-family: var(--font-display);
+  letter-spacing: var(--display-spacing);
+  font-weight: 700;
+  line-height: 1.06;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
 .app-window {
   position: relative;
   height: 100%;

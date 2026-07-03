@@ -1,13 +1,13 @@
-import { Check, ChevronLeft, ChevronRight, Music, Video } from "lucide-react";
-import { useState } from "react";
-import { useNavigation } from "@/contexts/NavigationContext";
-import { markLessonSeen, markLessonUnseen } from "@/lib/ipc";
-import { type Chapter, searchSiblings } from "@/lib/method-view";
-import type { Lesson, Method } from "@/types/model";
-import Button from "../atoms/Button";
-import IconButton from "../atoms/IconButton";
-import NavLesson from "../molecules/NavLesson";
-import VideoPlayer from "../organisms/VideoPlayer";
+import { Check, ChevronLeft, ChevronRight, Music, Video } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigation } from '@/contexts/NavigationContext';
+import { markLessonSeen, markLessonUnseen } from '@/lib/ipc';
+import { type Chapter, searchSiblings } from '@/lib/method-view';
+import type { Lesson, Method } from '@/types/model';
+import Button from '../atoms/Button';
+import IconButton from '../atoms/IconButton';
+import NavLesson from '../molecules/NavLesson';
+import VideoPlayer from '../organisms/VideoPlayer';
 
 type LessonScreenProps = {
   chapter: Chapter;
@@ -18,10 +18,10 @@ type LessonScreenProps = {
 
 export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: LessonScreenProps) {
   const lessonMeta = chapter.lessonsStatus.find((stat) => stat.lessonId === lesson.id);
-  const lessonStatus = lessonMeta?.status || "todo";
+  const lessonStatus = lessonMeta?.status || 'todo';
 
   const { openLesson, goToMethod } = useNavigation();
-  const [done, setDone] = useState(lessonStatus === "done");
+  const [done, setDone] = useState(lessonStatus === 'done');
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
   const handleVideoEnd = () => {
     setDone(true);
@@ -36,7 +36,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
       fileId={lesson.video.fileId}
       lessonId={lesson.id}
       lessonStatus={lessonStatus}
-      {...(lessonMeta?.resumeMs && { resumeMs: lessonMeta.resumeMs })}
+      resumeMs={lessonMeta?.resumeMs}
       onVideoEnd={handleVideoEnd}
     />
   );
@@ -67,8 +67,8 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
             <h1 className="display m-0 min-w-56 flex-1 text-[clamp(20px,3vw,44px)]">
               {lesson.title}
             </h1>
-            <Button {...(!done && { variant: "primary" })} onClick={handleToggleDone}>
-              <Check size={17} /> {done ? "Terminé" : "Marquer terminé"}
+            <Button variant={!done ? 'primary' : undefined} onClick={handleToggleDone}>
+              <Check size={17} /> {done ? 'Terminé' : 'Marquer terminé'}
             </Button>
           </div>
 
@@ -79,7 +79,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                 <div className="eyebrow mb-3 text-xs">
                   {lesson.tabs.length > 1
                     ? `Exercices · ${lesson.tabs.length}`
-                    : "Exercice de la leçon"}
+                    : 'Exercice de la leçon'}
                 </div>
                 <div className="flex flex-col gap-2.5">
                   {lesson.tabs.map((tab) => (
@@ -87,12 +87,12 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                       key={tab.id}
                       type="button"
                       className="card ex-card"
-                      onClick={() => openLesson(lesson, chapter, "tab")}
+                      onClick={() => openLesson(lesson, chapter, 'tab')}
                     >
                       <div className="flex items-center gap-3">
                         <div
                           className="type-ic tab size-8 flex-initial"
-                          style={{ width: 34, height: 34, flex: "0 0 auto" }}
+                          style={{ width: 34, height: 34, flex: '0 0 auto' }}
                         >
                           <Music size={18} />
                         </div>
@@ -117,12 +117,12 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                 <NavLesson
                   dir="prev"
                   title={previousLesson.title}
-                  onClick={() => openLesson(previousLesson, chapter, "video")}
+                  onClick={() => openLesson(previousLesson, chapter, 'video')}
                 />
               )}
             </div>
             <div className="mono whitespace-nowrap text-center text-fg3 text-xs">
-              Partie {chapter.lessonsStatus.findIndex((l) => l.lessonId === lesson.id) + 1} /{" "}
+              Partie {chapter.lessonsStatus.findIndex((l) => l.lessonId === lesson.id) + 1} /{' '}
               {chapter.lessonsStatus.length}
             </div>
             <div className="min-w-0 flex-[0_0_clamp(168px,32%,300px)]">
@@ -130,7 +130,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                 <NavLesson
                   dir="next"
                   title={nextLesson.title}
-                  onClick={() => openLesson(nextLesson, chapter, "video")}
+                  onClick={() => openLesson(nextLesson, chapter, 'video')}
                 />
               )}
             </div>

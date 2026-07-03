@@ -1,4 +1,4 @@
-import { createContext, type Dispatch, useContext, useMemo, useReducer } from "react";
+import { createContext, type Dispatch, useContext, useMemo, useReducer } from 'react';
 
 export type BreadcrumbItem = {
   label: string;
@@ -6,16 +6,16 @@ export type BreadcrumbItem = {
 };
 
 type AddItemAction = {
-  type: "add";
+  type: 'add';
   payload: BreadcrumbItem;
 };
 
 type ClearAction = {
-  type: "clear";
+  type: 'clear';
 };
 
 type ReplaceAction = {
-  type: "replace";
+  type: 'replace';
   payload: BreadcrumbItem[];
 };
 
@@ -30,11 +30,11 @@ const BreadcrumbContext = createContext<BreadcrumbContextValue | undefined>(unde
 
 function breadcrumbReducer(items: BreadcrumbItem[], action: BreadcrumbAction) {
   switch (action.type) {
-    case "add":
+    case 'add':
       return [...items, action.payload];
-    case "replace":
+    case 'replace':
       return [...action.payload];
-    case "clear":
+    case 'clear':
       return [];
   }
 }
@@ -50,7 +50,7 @@ export function useBreadcrumb() {
   const context = useContext(BreadcrumbContext);
 
   if (context === undefined) {
-    throw new Error("useBreadcrumb must be used within a BreadcrumbProvider");
+    throw new Error('useBreadcrumb must be used within a BreadcrumbProvider');
   }
 
   return context;

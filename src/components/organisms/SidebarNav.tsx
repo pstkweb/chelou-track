@@ -1,9 +1,9 @@
-import { Check } from "lucide-react";
-import { useState } from "react";
-import ChapterProgress from "@/components/molecules/ChapterProgress";
-import cn from "@/lib/cn";
-import type { Chapter } from "@/lib/method-view";
-import SectionNodes from "./SectionNodes";
+import { Check } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import ChapterProgress from '@/components/molecules/ChapterProgress';
+import cn from '@/lib/cn';
+import type { Chapter } from '@/lib/method-view';
+import SectionNodes from './SectionNodes';
 
 type SidebarNavProps = {
   currentChapterId: string | undefined;
@@ -14,6 +14,18 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
   const [selectedChapterId, setSelectedChapterId] = useState(
     currentChapterId ?? chapters.at(0)?.id,
   );
+  const userPickedRef = useRef(false);
+
+  useEffect(() => {
+    if (!userPickedRef.current && currentChapterId) {
+      setSelectedChapterId(currentChapterId);
+    }
+  }, [currentChapterId]);
+
+  const selectChapter = (id: string) => {
+    userPickedRef.current = true;
+    setSelectedChapterId(id);
+  };
   const selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId);
 
   if (selectedChapterId === undefined) {
@@ -29,21 +41,21 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
       <div className="scroll sticky top-0 max-h-[calc(100vh-38px)] self-start border-border border-r bg-bg2 p-2">
         {chapters.map((chapter) => {
           const lessonsCount = chapter.lessonsStatus.length;
-          const done = chapter.lessonsStatus.filter((stat) => stat.status === "done").length;
+          const done = chapter.lessonsStatus.filter((stat) => stat.status === 'done').length;
           const allDone = done === lessonsCount;
 
           return (
             <button
               type="button"
               key={chapter.id}
-              onClick={() => setSelectedChapterId(chapter.id)}
+              onClick={() => selectChapter(chapter.id)}
               className={cn(
-                "row-btn h-auto min-h-14",
-                chapter.id === selectedChapterId && "active",
+                'row-btn h-auto min-h-14',
+                chapter.id === selectedChapterId && 'active',
               )}
             >
-              <div className={cn("display w-7 text-base text-fg2", allDone && "text-done")}>
-                {allDone ? <Check size={18} /> : String(chapter.num).padStart(2, "0")}
+              <div className={cn('display w-7 text-base text-fg2', allDone && 'text-done')}>
+                {allDone ? <Check size={18} /> : String(chapter.num).padStart(2, '0')}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="min-w-0 flex-1 overflow-hidden truncate whitespace-normal font-semibold text-sm">
@@ -67,7 +79,7 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
         <div className="scroll p-(--pad)">
           <div className="eyebrow mb-1">
             Chapitre {selectedChapter.num} · {selectedChapter.lessonsStatus.length} leçon
-            {selectedChapter.lessonsStatus.length > 1 ? "s" : ""}
+            {selectedChapter.lessonsStatus.length > 1 ? 's' : ''}
           </div>
           <h3 className="display m-0 mb-4 text-2xl">{selectedChapter.title}</h3>
           <SectionNodes

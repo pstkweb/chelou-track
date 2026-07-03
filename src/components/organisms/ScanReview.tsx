@@ -1,24 +1,11 @@
-import { Check, ChevronLeft, Download, Music } from "lucide-react";
-import { useState } from "react";
-import Button from "@/components/atoms/Button";
-import cn from "@/lib/cn";
-import { computeMethodColors } from "@/lib/helpers";
-import { saveMethod } from "@/lib/ipc";
-import type { Method, SectionItem } from "@/types/model";
-
-function countLessons(items: SectionItem[]): number {
-  return items.reduce((sum, item) => {
-    if (item.type === "lesson") return sum + 1;
-    return sum + countLessons(item.items);
-  }, 0);
-}
-
-function countTabs(items: SectionItem[]): number {
-  return items.reduce((sum, item) => {
-    if (item.type === "lesson") return sum + item.tabs.length;
-    return sum + countTabs(item.items);
-  }, 0);
-}
+import { Check, ChevronLeft, Download, Music } from 'lucide-react';
+import { useState } from 'react';
+import Button from '@/components/atoms/Button';
+import cn from '@/lib/cn';
+import { computeMethodColors } from '@/lib/colors';
+import { saveMethod } from '@/lib/ipc';
+import { countLessons, countTabs } from '@/lib/method-view';
+import type { Method } from '@/types/model';
 
 type ScanReviewProps = {
   foundMethods: Method[];
@@ -49,12 +36,12 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
   return (
     <div
       className="card p-7"
-      style={{ width: "min(460px, 100%)", animation: "fadeUp .35s var(--ease)" }}
+      style={{ width: 'min(460px, 100%)', animation: 'fadeUp .35s var(--ease)' }}
     >
       <div className="eyebrow mb-1.5">Étape 3 / 3 · Méthodes trouvées</div>
       <h2 className="display m-0 mb-1 text-2xl">
-        {foundMethods.length} méthode{foundMethods.length > 1 ? "s" : ""} détectée
-        {foundMethods.length > 1 ? "s" : ""}
+        {foundMethods.length} méthode{foundMethods.length > 1 ? 's' : ''} détectée
+        {foundMethods.length > 1 ? 's' : ''}
       </h2>
       <p className="m-0 mb-3 text-fg2 text-sm/normal">
         Décoche celles que tu ne veux pas importer.
@@ -70,13 +57,13 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
               key={m.id}
               type="button"
               onClick={() => toggle(m.id)}
-              className={cn("row-btn min-h-14 opacity-100", !on && "opacity-50")}
+              className={cn('row-btn min-h-14 opacity-100', !on && 'opacity-50')}
             >
               <span
                 aria-hidden
                 className={cn(
-                  "flex size-5 flex-initial items-center justify-center rounded border-2 border-accent bg-accent text-accentink transition-all",
-                  !on && "border-border2 bg-transparent",
+                  'flex size-5 flex-initial items-center justify-center rounded border-2 border-accent bg-accent text-accentink transition-all',
+                  !on && 'border-border2 bg-transparent',
                 )}
               >
                 {on && <Check size={13} />}

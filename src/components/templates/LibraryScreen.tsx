@@ -1,36 +1,25 @@
-import { useEffect, useState } from "react";
-import SearchField from "@/components/molecules/SearchField";
-import MethodCard from "@/components/organisms/MethodCard";
-import { useNavigation } from "@/contexts/NavigationContext";
-import { listMethods } from "@/lib/ipc";
-import type { Method } from "@/types/model";
+import { useEffect, useState } from 'react';
+import SearchField from '@/components/molecules/SearchField';
+import MethodCard from '@/components/organisms/MethodCard';
+import { useNavigation } from '@/contexts/NavigationContext';
+import { listMethods } from '@/lib/ipc';
+import type { Method } from '@/types/model';
+
+const sanitize = (str: string) =>
+  str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
 
 export default function LibraryScreen() {
-  const [q, setQ] = useState("");
-  const [methods, setMethods] = useState<Method[]>([]);
-  const [lib, setLib] = useState<Method[]>([]);
   const { goToMethod } = useNavigation();
+  const [q, setQ] = useState('');
+  const [methods, setMethods] = useState<Method[]>([]);
+  const lib = methods.filter((m) => sanitize(m.title).includes(sanitize(q)));
 
   useEffect(() => {
     listMethods().then(setMethods);
   }, []);
-
-  useEffect(() => {
-    setLib(
-      methods.filter((m) =>
-        m.title
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/\p{Diacritic}/gu, "")
-          .includes(
-            q
-              .toLowerCase()
-              .normalize("NFD")
-              .replace(/\p{Diacritic}/gu, ""),
-          ),
-      ),
-    );
-  }, [methods, q]);
 
   return (
     <div className="scroll flex-1">

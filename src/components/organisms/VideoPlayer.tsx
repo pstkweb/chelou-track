@@ -1,10 +1,12 @@
-import { Maximize2, Minimize2, Pause, Play } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import useTimecodeResume from "@/hooks/useTimecodeResume";
-import cn from "@/lib/cn";
-import type { LessonStatus } from "@/lib/method-view";
-import { videoUrl } from "@/lib/stream";
-import IconButton from "../atoms/IconButton";
+import { Maximize2, Minimize2, Pause, Play } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import useAutoHideControls from '@/hooks/useAutoHideControls';
+import useFullscreen from '@/hooks/useFullscreen';
+import useTimecodeResume from '@/hooks/useTimecodeResume';
+import cn from '@/lib/cn';
+import type { LessonStatus } from '@/lib/method-view';
+import { videoUrl } from '@/lib/stream';
+import IconButton from '../atoms/IconButton';
 
 type VideoPlayerProps = {
   chapterNum: number;
@@ -13,19 +15,19 @@ type VideoPlayerProps = {
   lessonStatus: LessonStatus;
   methodId: string;
   methodTitle: string;
-  resumeMs?: number;
+  resumeMs: number | undefined;
   onVideoEnd: () => void;
 };
 
 function fmtTime(seconds: number, usePlaceholder = false) {
   if (Number.isNaN(seconds) || seconds <= 0) {
-    return usePlaceholder ? "-:--" : "0:00";
+    return usePlaceholder ? '-:--' : '0:00';
   }
 
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
 
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 export default function VideoPlayer({
@@ -40,19 +42,25 @@ export default function VideoPlayer({
 }: VideoPlayerProps) {
   const { record: recordTimecode, cancel: cancelTimecode } = useTimecodeResume(methodId, lessonId);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [areControlsVisible, setAreControlsVisible] = useState(true);
   const [duration, setDuration] = useState(0);
   const [timecode, setTimecode] = useState(
-    lessonStatus === "current" && resumeMs ? Math.round(resumeMs / 1000) - 2 : 0,
+    lessonStatus === 'current' && resumeMs ? Math.round(resumeMs / 1000) - 2 : 0,
   );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const progressContainerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const controlsTimer = useRef<number | null>(null);
+
+  const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef);
+  const { areControlsVisible, resetControlsTimer } = useAutoHideControls(isPlaying);
 
   const progressPct = (timecode / duration) * 100;
-  const scrub = (e: React.MouseEvent) => {
+  const seekBy = (deltaInSeconds: number) => {
+    if (videoRef.current) {
+      resetControlsTimer();
+      videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime + deltaInSeconds);
+    }
+  };
+  const handleScrub = (e: React.MouseEvent) => {
     if (progressContainerRef.current && videoRef.current) {
       const r = progressContainerRef.current.getBoundingClientRect();
 
@@ -70,54 +78,27 @@ export default function VideoPlayer({
       setIsPlaying(!isPlaying);
     }
   };
-  const handleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      containerRef.current?.requestFullscreen();
-    }
-  }, []);
-  const resetControlsTimer = useCallback(() => {
-    if (controlsTimer.current) {
-      clearTimeout(controlsTimer.current);
-    }
-    setAreControlsVisible(true);
-    if (isPlaying) {
-      controlsTimer.current = window.setTimeout(() => {
-        setAreControlsVisible(false);
-      }, 2000);
-    }
-  }, [isPlaying]);
   const handleKeyboard = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const srubModifier = e.shiftKey ? 10 : e.ctrlKey ? 1 : 5;
+    const scrubModifier = e.shiftKey ? 10 : e.ctrlKey ? 1 : 5;
 
     switch (e.code) {
-      case "Space":
+      case 'Space':
         e.preventDefault();
         handlePlay();
         break;
-      case "Escape":
+      case 'Escape':
         if (isFullscreen) {
-          document.exitFullscreen();
+          toggleFullscreen();
         }
         break;
-      case "KeyF":
-        handleFullscreen();
+      case 'KeyF':
+        toggleFullscreen();
         break;
-      case "ArrowLeft":
-        if (videoRef.current) {
-          resetControlsTimer();
-          videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - srubModifier);
-        }
+      case 'ArrowLeft':
+        seekBy(-scrubModifier);
         break;
-      case "ArrowRight":
-        if (videoRef.current) {
-          resetControlsTimer();
-          videoRef.current.currentTime = Math.min(
-            duration,
-            videoRef.current.currentTime + srubModifier,
-          );
-        }
+      case 'ArrowRight':
+        seekBy(scrubModifier);
         break;
       default:
         break;
@@ -131,7 +112,7 @@ export default function VideoPlayer({
   const handleMetadataLoaded = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     setDuration(e.currentTarget.duration);
 
-    if (lessonStatus === "current" && resumeMs) {
+    if (lessonStatus === 'current' && resumeMs) {
       e.currentTarget.currentTime = Math.max(0, resumeMs / 1000 - 2);
     }
   };
@@ -140,27 +121,11 @@ export default function VideoPlayer({
     containerRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
-
-  useEffect(() => {
-    resetControlsTimer();
-
-    return () => {
-      if (controlsTimer.current) {
-        clearTimeout(controlsTimer.current);
-      }
-    };
-  }, [resetControlsTimer]);
-
   return (
     <div
       className={cn(
-        "video-container relative aspect-video outline-none",
-        isFullscreen && "fixed inset-0 z-9999 bg-black",
+        'video-container relative aspect-video outline-none',
+        isFullscreen && 'fixed inset-0 z-9999 bg-black',
       )}
       onMouseMove={resetControlsTimer}
       onMouseEnter={resetControlsTimer}
@@ -172,8 +137,8 @@ export default function VideoPlayer({
       <video
         ref={videoRef}
         className={cn(
-          "aspect-video overflow-hidden rounded-lg bg-(--media) shadow-soft",
-          isFullscreen && "aspect-auto h-full w-full rounded-none shadow-none",
+          'aspect-video overflow-hidden rounded-lg bg-(--media) shadow-soft',
+          isFullscreen && 'aspect-auto h-full w-full rounded-none shadow-none',
         )}
         src={videoUrl(fileId)}
         controls={false}
@@ -186,11 +151,11 @@ export default function VideoPlayer({
       />
       <div
         className={cn(
-          "opacity-100 transition-opacity duration-200",
-          !areControlsVisible && "pointer-events-none opacity-0",
+          'opacity-100 transition-opacity duration-200',
+          !areControlsVisible && 'pointer-events-none opacity-0',
         )}
         onClick={handlePlay}
-        onKeyUp={(e) => e.code === "Enter" && handlePlay()}
+        onKeyUp={(e) => e.code === 'Enter' && handlePlay()}
       >
         <div className="absolute inset-0 bg-[radial-gradient(60%_60%_at_50%_45%,transparent,rgba(0,0,0,.4))]" />
         <div className="display absolute top-6 left-6 text-[rgba(255,255,255,.8)] text-sm tracking-widest">
@@ -200,8 +165,8 @@ export default function VideoPlayer({
           <button
             type="button"
             className={cn(
-              "flex size-20 items-center justify-center rounded-full border-2 border-[rgba(255,255,255,.4)] bg-[rgba(0,0,0,.4)] text-white backdrop-blur-sm transition-transform duration-200",
-              isPlaying ? "scale-75" : "scale-90",
+              'flex size-20 items-center justify-center rounded-full border-2 border-[rgba(255,255,255,.4)] bg-[rgba(0,0,0,.4)] text-white backdrop-blur-sm transition-transform duration-200',
+              isPlaying ? 'scale-75' : 'scale-90',
             )}
             onClick={handlePlay}
           >
@@ -212,22 +177,15 @@ export default function VideoPlayer({
           className="absolute right-0 bottom-0 left-0 bg-[linear-gradient(transparent,rgba(0,0,0,.55))] px-5 pt-0 pb-3.5"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e: React.KeyboardEvent) => {
-            if (e.key === "Enter") e.stopPropagation();
+            if (e.key === 'Enter') e.stopPropagation();
           }}
         >
           <div
             ref={progressContainerRef}
-            onClick={scrub}
+            onClick={handleScrub}
             onKeyDown={() => {}}
             className="relative mb-0 h-1.5 cursor-pointer rounded-full bg-[rgba(255,255,255,.25)]"
           >
-            {resumeMs && lessonStatus !== "done" && (
-              <div
-                title="Reprise"
-                className="absolute -top-1 h-3.5 w-0.5 bg-white opacity-70"
-                style={{ left: `${resumeMs * 100}%` }}
-              />
-            )}
             <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />
             <div
               className="-translate-1/2 absolute top-1/2 size-3.5 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,.4)]"
@@ -242,7 +200,7 @@ export default function VideoPlayer({
               {fmtTime(timecode, false)} / {fmtTime(duration)}
             </span>
             <div className="flex-1" />
-            <IconButton className="text-white" onClick={handleFullscreen}>
+            <IconButton className="text-white" onClick={toggleFullscreen}>
               {isFullscreen ? (
                 <Minimize2 size={17} className="opacity-85" />
               ) : (

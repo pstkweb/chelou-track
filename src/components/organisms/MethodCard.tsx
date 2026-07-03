@@ -1,56 +1,8 @@
-import { Guitar } from "lucide-react";
-import Button from "@/components/atoms/Button";
-import { computeMethodColors } from "@/lib/helpers";
-import { progressPct } from "@/lib/ipc";
-import type { Method, SectionItem } from "@/types/model";
-
-const countVideos = (...items: SectionItem[]) => {
-  let total = 0;
-
-  for (const item of items) {
-    if (item.type === "lesson") {
-      total++;
-    }
-
-    if (item.type === "section") {
-      total += countVideos(...item.items);
-    }
-  }
-
-  return total;
-};
-
-const countTabs = (...items: SectionItem[]) => {
-  let total = 0;
-
-  for (const item of items) {
-    if (item.type === "lesson") {
-      total += item.tabs.length;
-    }
-
-    if (item.type === "section") {
-      total += countTabs(...item.items);
-    }
-  }
-
-  return total;
-};
-
-const countBackingTracks = (...items: SectionItem[]) => {
-  let total = 0;
-
-  for (const item of items) {
-    if (item.type === "lesson") {
-      total += item.backingGroups.length;
-    }
-
-    if (item.type === "section") {
-      total += countBackingTracks(...item.items);
-    }
-  }
-
-  return total;
-};
+import { Guitar } from 'lucide-react';
+import Button from '@/components/atoms/Button';
+import { computeMethodColors } from '@/lib/colors';
+import { countBackingTracks, countLessons, countTabs, methodProgressPct } from '@/lib/method-view';
+import type { Method } from '@/types/model';
 
 type MethodCardProps = {
   method: Method;
@@ -59,11 +11,11 @@ type MethodCardProps = {
 
 export default function MethodCard({ method, onOpen }: MethodCardProps) {
   const started = Object.keys(method.progress).length > 0;
-  const fmtPct = () => `${(progressPct(method) * 100).toFixed()}%`;
+  const fmtPct = () => `${(methodProgressPct(method) * 100).toFixed()}%`;
   const [c1, c2] = computeMethodColors(method.title);
 
   const handleEnterPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    if (e.key === 'Enter') {
       onOpen(method);
     }
   };
@@ -90,13 +42,13 @@ export default function MethodCard({ method, onOpen }: MethodCardProps) {
         <div className="flex flex-col gap-3 p-(--pad)">
           <div className="flex flex-wrap gap-4 text-fg3 text-xs">
             <span>
-              <b className="text-fg2">{countVideos(...method.items)}</b> vidéos
+              <b className="text-fg2">{countLessons(method.items)}</b> vidéos
             </span>
             <span>
-              <b className="text-fg2">{countTabs(...method.items)}</b> tabs
+              <b className="text-fg2">{countTabs(method.items)}</b> tabs
             </span>
             <span>
-              <b className="text-fg2">{countBackingTracks(...method.items)}</b> backings
+              <b className="text-fg2">{countBackingTracks(method.items)}</b> backings
             </span>
           </div>
           {started ? (

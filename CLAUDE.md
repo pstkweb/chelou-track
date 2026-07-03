@@ -97,6 +97,20 @@ Ce découpage permet de tester le modèle et la persistance sans compiler Tauri 
 | `components/catalogue/Catalogue.ts` | Navigation méthode→leçons, tri par `.order` |
 | `components/documents/DocViewer.ts` | PDF.js + `<img>` pour les images |
 
+### CSS — classe custom vs utilitaires Tailwind
+
+Trois fichiers, chargés dans cet ordre (`index.html`) : `globals.css` (import Tailwind + tokens
+de couleur/rayon mappés en `@theme inline` — seule source de vérité pour ces tokens, ne pas les
+redéclarer ailleurs), `theme.css` (tokens non couverts par Tailwind : `--pad`, `--gap`, `--row-h`,
+`--fs*`, reset de base), `components.css` (classes de composants réutilisables).
+
+**Règle :** une classe dans `components.css` (`.btn`, `.chip`, `.card`, `.tree-row`, `.row-btn`…)
+seulement pour un motif visuel réutilisé à plusieurs endroits distincts de l'app. Pour tout le
+reste — mise en page, espacement, cas ponctuels — utilitaires Tailwind inline directement dans le
+JSX, y compris pour les valeurs hors échelle (`text-[clamp(20px,3vw,44px)]`, `bg-(--pad)`) : elles
+restent lisibles sans devoir ouvrir un autre fichier. Passer par `cn()` (`clsx` + `tailwind-merge`)
+dès qu'un composant a un `className` conditionnel ou surchargeable depuis l'extérieur.
+
 ### Boucle de synchronisation (SyncView)
 
 Modèle : **audio = horloge maître, AlphaTab = esclave**. Ne jamais faire « jouer » AlphaTab.

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
-import { updateLessonResume } from "@/lib/ipc";
+import { useCallback, useEffect, useRef } from 'react';
+import { updateLessonResume } from '@/lib/ipc';
 
 export default function useTimecodeResume(methodId: string, lessonId: string, delay = 5_000) {
   const timerRef = useRef<number | null>(null);
@@ -32,8 +32,8 @@ export default function useTimecodeResume(methodId: string, lessonId: string, de
   useEffect(() => flush, [flush]);
 
   useEffect(() => {
-    window.addEventListener("beforeunload", flush);
-    return () => window.removeEventListener("beforeunload", flush);
+    window.addEventListener('beforeunload', flush);
+    return () => window.removeEventListener('beforeunload', flush);
   }, [flush]);
 
   const cancel = useCallback(() => {

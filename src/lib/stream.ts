@@ -1,7 +1,7 @@
 // Helpers to build stream:// URIs for the Rust protocol handler.
 // The backend resolves these to pCloud byte ranges — no URL leaks to the WebView.
 
-const BASE = "http://stream.localhost";
+const BASE = 'http://stream.localhost';
 
 export function videoUrl(fileId: number, transcoded = false): string {
   const base = `${BASE}/video/${fileId}`;

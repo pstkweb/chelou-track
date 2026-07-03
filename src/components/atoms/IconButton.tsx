@@ -3,9 +3,9 @@ type IconButtonProps = {
   children: React.ReactNode;
 } & React.HTMLAttributes<HTMLButtonElement>;
 
-export default function IconButton({ className = "", children, ...rest }: IconButtonProps) {
+export default function IconButton({ className = '', children, ...rest }: IconButtonProps) {
   return (
-    <button className={["icon-btn", className].filter(Boolean).join(" ")} {...rest}>
+    <button className={['icon-btn', className].filter(Boolean).join(' ')} {...rest}>
       {children}
     </button>
   );

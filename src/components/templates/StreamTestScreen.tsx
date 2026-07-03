@@ -1,4 +1,4 @@
-import { audioUrl, docUrl, videoUrl } from "@/lib/stream";
+import { audioUrl, docUrl, videoUrl } from '@/lib/stream';
 
 export default function StreamTestScreen() {
   return (

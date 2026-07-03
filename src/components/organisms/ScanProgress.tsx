@@ -1,10 +1,10 @@
-import { listen } from "@tauri-apps/api/event";
-import { AlertCircle } from "lucide-react";
-import { useEffect, useState } from "react";
-import Button from "@/components/atoms/Button";
-import Spinner from "@/components/atoms/Spinner";
-import { type ScanProgressEvent, scanMethod } from "@/lib/ipc";
-import type { Method } from "@/types/model";
+import { listen } from '@tauri-apps/api/event';
+import { AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Button from '@/components/atoms/Button';
+import Spinner from '@/components/atoms/Spinner';
+import { type ScanProgressEvent, scanMethod } from '@/lib/ipc';
+import type { Method } from '@/types/model';
 
 type ScanProgressProps = {
   folderId: number;
@@ -21,7 +21,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
-    listen<ScanProgressEvent>("scan:progress", (e) => {
+    listen<ScanProgressEvent>('scan:progress', (e) => {
       setScannedFolders(e.payload.foldersVisited);
       setFoundMethods(e.payload.methodsFound);
     }).then((fn) => {
@@ -48,7 +48,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
   return (
     <div
       className="card p-7"
-      style={{ width: "min(440px, 100%)", animation: "fadeUp .35s var(--ease)" }}
+      style={{ width: 'min(440px, 100%)', animation: 'fadeUp .35s var(--ease)' }}
     >
       <div className="eyebrow mb-1.5">Étape 2 / 3 · Analyse</div>
       <h2 className="display m-0 mb-1 text-2xl">Analyse du dossier…</h2>
@@ -61,7 +61,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
         <Spinner className="size-14 border-4" />
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-sm">
-            {scannedFolders.toLocaleString("fr-FR")} dossiers inspectés
+            {scannedFolders.toLocaleString('fr-FR')} dossiers inspectés
           </div>
           <div className="text-fg3 text-xs">
             {foundMethods > 0 ? (
@@ -69,7 +69,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
                 <b className="text-accent">{foundMethods}</b> méthode(s) détectée(s)
               </>
             ) : (
-              "Recherche en cours…"
+              'Recherche en cours…'
             )}
           </div>
         </div>

@@ -16,23 +16,32 @@
   },
   "linter": {
     "enabled": true,
+    "domains": {
+      "react": "recommended",
+      "types": "recommended"
+    },
     "rules": {
       "recommended": true,
       "nursery": {
         "useSortedClasses": "error"
       },
       "complexity": {
-        "useLiteralKeys": "off"
+        "useLiteralKeys": "off",
+        "noExcessiveCognitiveComplexity": "warn"
       },
       "a11y": {
         "useMediaCaption": "off",
         "noStaticElementInteractions": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
       }
     }
   },
   "javascript": {
     "formatter": {
-      "quoteStyle": "double"
+      "quoteStyle": "single"
     }
   },
   "assist": {

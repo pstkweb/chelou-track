@@ -1,4 +1,4 @@
-import type { LessonStatus } from "@/lib/method-view";
+import type { LessonStatus } from '@/lib/method-view';
 
 type StatusDotProps = {
   status: LessonStatus;

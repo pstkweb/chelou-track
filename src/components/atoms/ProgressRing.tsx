@@ -16,7 +16,7 @@ export default function ProgressRing({
 
   return (
     <div className="relative flex-initial" style={{ width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
         <title>Progress Ring</title>
         <circle
           cx={size / 2}
@@ -36,7 +36,7 @@ export default function ProgressRing({
           strokeDasharray={c}
           strokeDashoffset={c * (1 - value)}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset .5s var(--ease)" }}
+          style={{ transition: 'stroke-dashoffset .5s var(--ease)' }}
         />
       </svg>
       <div

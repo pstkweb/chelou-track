@@ -1,25 +1,10 @@
 /* Chelou Track — design system × dark/light */
 
 :root {
-  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --done: #4fae6a;
   --current: var(--accent);
 
   /* Typographie */
-  --font-display: "Space Grotesk", system-ui, sans-serif;
-  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --display-spacing: -0.01em;
-
-  /* Rayons */
-  --radius-sm: 4px;
-  --radius: 5px;
-  --radius-lg: 7px;
-
-  /* Accent */
-  --accent: #c8f24a;
-  --accent-2: #7ce0c3;
-  --accent-contrast: #0a0b0d;
 
   /* Densité (aérée) */
   --pad: 26px;
@@ -31,35 +16,11 @@
 
 /* ============================ SOMBRE ============================ */
 [data-mode="dark"] {
-  --bg: #0a0b0d;
-  --bg-2: #101216;
-  --bg-3: #171a20;
-  --surface: #0e1014;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-2: rgba(255, 255, 255, 0.16);
-  --text: #e7eaee;
-  --text-2: #8b939d;
-  --text-3: #565d66;
-  --shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
-  --chip: rgba(255, 255, 255, 0.05);
   --media: linear-gradient(135deg, #12151a, #0a0c0f);
 }
 
 /* ============================ CLAIR ============================ */
 [data-mode="light"] {
-  --bg: #e9ecef;
-  --bg-2: #ffffff;
-  --bg-3: #f2f4f6;
-  --surface: #ffffff;
-  --border: rgba(15, 20, 26, 0.1);
-  --border-2: rgba(15, 20, 26, 0.2);
-  --text: #12151a;
-  --text-2: #555e68;
-  --text-3: #8893a0;
-  --accent: #5f8a00;
-  --accent-contrast: #fff;
-  --shadow: 0 10px 30px rgba(15, 25, 35, 0.1);
-  --chip: rgba(15, 20, 26, 0.04);
   --media: linear-gradient(135deg, #20242b, #13161b);
 }
 
@@ -87,17 +48,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-.display {
-  font-family: var(--font-display);
-  letter-spacing: var(--display-spacing);
-  font-weight: 700;
-  line-height: 1.06;
-}
-
-.mono {
-  font-family: var(--font-mono);
-}
-
 ::selection {
   background: var(--accent);
   color: var(--accent-contrast);
@@ -122,22 +72,4 @@ button {
 
 ::-webkit-scrollbar-track {
   background: transparent;
-}
-
-.app-window {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.app-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  position: relative;
-  z-index: 1;
 }

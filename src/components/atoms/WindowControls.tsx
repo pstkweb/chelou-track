@@ -1,6 +1,6 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Copy, Minus, Square, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const appWindow = getCurrentWindow();
 
@@ -8,16 +8,6 @@ export default function WindowControls() {
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
 
   useEffect(() => {
-    appWindow.theme().then((theme) => {
-      let themeName = "dark";
-
-      if (theme === "light") {
-        themeName = "light";
-      }
-
-      document.documentElement.dataset["mode"] = themeName;
-    });
-
     appWindow.isMaximized().then(setIsMaximized);
 
     const unlisten = appWindow.onResized(async () => {
@@ -48,8 +38,8 @@ export default function WindowControls() {
       </button>
       <button
         type="button"
-        aria-label={isMaximized ? "Restaurer" : "Agrandir"}
-        title={isMaximized ? "Restaurer" : "Agrandir"}
+        aria-label={isMaximized ? 'Restaurer' : 'Agrandir'}
+        title={isMaximized ? 'Restaurer' : 'Agrandir'}
         onClick={toggleMaximize}
       >
         {isMaximized ? <Copy size={15} /> : <Square size={15} />}

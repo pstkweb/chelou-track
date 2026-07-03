@@ -1,14 +1,14 @@
-import { AlertCircle, ChevronRight, Cloud, Folder, Search } from "lucide-react";
-import React, { useEffect, useState } from "react";
-import Button from "@/components/atoms/Button";
-import Chip from "@/components/atoms/Chip";
-import Spinner from "@/components/atoms/Spinner";
-import ScanProgress from "@/components/organisms/ScanProgress";
-import ScanReview from "@/components/organisms/ScanReview";
-import cn from "@/lib/cn";
-import type { FolderEntry } from "@/lib/ipc";
-import { listFolder } from "@/lib/ipc";
-import type { Method } from "@/types/model";
+import { AlertCircle, ChevronRight, Cloud, Folder, Search } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Button from '@/components/atoms/Button';
+import Chip from '@/components/atoms/Chip';
+import Spinner from '@/components/atoms/Spinner';
+import ScanProgress from '@/components/organisms/ScanProgress';
+import ScanReview from '@/components/organisms/ScanReview';
+import cn from '@/lib/cn';
+import type { FolderEntry } from '@/lib/ipc';
+import { listFolder } from '@/lib/ipc';
+import type { Method } from '@/types/model';
 
 type Crumb = { id: number; name: string };
 
@@ -16,19 +16,28 @@ type FolderPickerProps = {
   onConnected: () => void;
 };
 
-type State = "browse" | "scan" | "review";
+type State = 'browse' | 'scan' | 'review';
 
 export default function FolderPicker({ onConnected }: FolderPickerProps) {
-  const [state, setState] = useState<State>("browse");
-  const [path, setPath] = useState<string>("/");
+  const [state, setState] = useState<State>('browse');
+  const [path, setPath] = useState<string>('/');
   // crumbs[0] is always root. The current folder is the last crumb.
-  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 0, name: "pCloud" }]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 0, name: 'pCloud' }]);
   const [entries, setEntries] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revealedMethods, setRevealedMethods] = useState<Method[]>([]);
 
   const currentId = crumbs[crumbs.length - 1]?.id ?? 0;
+
+  const pathFromCrumbs = useMemo(
+    () =>
+      `/${crumbs
+        .map((c) => c.name)
+        .slice(1)
+        .join('/')}`,
+    [crumbs],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -40,13 +49,7 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
       .then((folders) => {
         if (!cancelled) {
           setEntries(folders);
-          setPath(
-            "/" +
-              crumbs
-                .map((c) => c.name)
-                .slice(1)
-                .join("/"),
-          );
+          setPath(pathFromCrumbs);
           setLoading(false);
         }
       })
@@ -60,7 +63,7 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
     return () => {
       cancelled = true;
     };
-  }, [currentId, crumbs.map]);
+  }, [currentId, pathFromCrumbs]);
 
   const enter = (entry: FolderEntry) =>
     setCrumbs((prev) => [...prev, { id: entry.folderid, name: entry.name }]);
@@ -71,26 +74,26 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
 
   const handleScanDone = (methods: Method[]) => {
     setRevealedMethods(methods);
-    setState("review");
+    setState('review');
   };
 
-  if (state === "scan") {
+  if (state === 'scan') {
     return (
       <ScanProgress
         folderId={currentId}
         path={path}
         onDone={handleScanDone}
-        onCancel={() => setState("browse")}
+        onCancel={() => setState('browse')}
       />
     );
   }
 
-  if (state === "review") {
+  if (state === 'review') {
     return (
       <ScanReview
         foundMethods={revealedMethods}
         onImport={onConnected}
-        onBack={() => setState("browse")}
+        onBack={() => setState('browse')}
       />
     );
   }
@@ -118,8 +121,8 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
                 type="button"
                 onClick={() => goTo(idx)}
                 className={cn(
-                  "cursor-pointer border-0 bg-none bg-transparent p-0 font-medium text-fg2 text-xs",
-                  isLast && "font-semibold text-fg",
+                  'cursor-pointer border-0 bg-none bg-transparent p-0 font-medium text-fg2 text-xs',
+                  isLast && 'font-semibold text-fg',
                 )}
               >
                 {seg.name}
@@ -164,9 +167,9 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
 
       <div className="flex items-center gap-3">
         <div className="flex-1 text-fg3 text-sm">
-          {!loading && !error && `${entries.length} sous-dossier${entries.length !== 1 ? "s" : ""}`}
+          {!loading && !error && `${entries.length} sous-dossier${entries.length !== 1 ? 's' : ''}`}
         </div>
-        <Button variant="primary" disabled={loading || !!error} onClick={() => setState("scan")}>
+        <Button variant="primary" disabled={loading || !!error} onClick={() => setState('scan')}>
           <Search size={17} /> Scanner ce dossier
         </Button>
       </div>

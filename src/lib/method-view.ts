@@ -1,6 +1,13 @@
-import type { Lesson, LessonProgress, Method, Section, SectionItem } from "@/types/model";
+import type {
+  Lesson,
+  LessonItem,
+  LessonProgress,
+  Method,
+  Section,
+  SectionItem,
+} from '@/types/model';
 
-export type LessonStatus = "todo" | "current" | "done";
+export type LessonStatus = 'todo' | 'current' | 'done';
 
 type LessonStat = {
   lessonId: string;
@@ -17,17 +24,15 @@ type ChapterMeta = {
 export type Chapter = Section & ChapterMeta;
 
 export function getChapters(method: Method): Chapter[] {
-  const chaptersStats: { [chapterId: string]: ChapterMeta } = {};
   const chapters = [];
   let i = 1;
 
   for (const item of method.items) {
-    if (item.type === "lesson") {
+    if (item.type === 'lesson') {
       continue;
     }
 
     const chapterMeta: ChapterMeta = { lessonsStatus: [], tabsCount: 0, num: i };
-    chaptersStats[item.id] = chapterMeta;
 
     iterateFolder(item, chapterMeta, method.progress);
 
@@ -43,14 +48,14 @@ function iterateFolder(
   stats: ChapterMeta,
   methodProgress: Record<string, LessonProgress>,
 ) {
-  if (item.type === "lesson") {
-    let status: LessonStatus = "todo";
+  if (item.type === 'lesson') {
+    let status: LessonStatus = 'todo';
 
     if (methodProgress[item.id]) {
       if (methodProgress[item.id]?.resumeMs) {
-        status = "current";
+        status = 'current';
       } else {
-        status = "done";
+        status = 'done';
       }
     }
 
@@ -85,11 +90,11 @@ export function computeStats(method: Method): MethodStats {
   for (const chapter of chapters) {
     lessonsCount += chapter.lessonsStatus.length;
     tabsCount += chapter.tabsCount;
-    lessonsDoneCount += chapter.lessonsStatus.filter((stat) => stat.status === "done").length;
+    lessonsDoneCount += chapter.lessonsStatus.filter((stat) => stat.status === 'done').length;
   }
 
   return {
-    chaptersCount: method.items.filter((item) => item.type === "section").length,
+    chaptersCount: method.items.filter((item) => item.type === 'section').length,
     documentsCount: method.documents.length,
     hasProgress: Object.keys(method.progress).length > 0,
     tabsCount,
@@ -108,9 +113,26 @@ export function searchChapter(chapters: Chapter[], lessonId: string) {
   return undefined;
 }
 
-export function countLessons(items: SectionItem[]): number {
-  return items.reduce((n, item) => n + (item.type === "lesson" ? 1 : countLessons(item.items)), 0);
+function reduceItems<T>(items: SectionItem[], fn: (acc: T, lesson: LessonItem) => T, init: T): T {
+  return items.reduce<T>((acc, item) => {
+    if (item.type === 'lesson') {
+      return fn(acc, item);
+    }
+
+    if (item.type === 'section') {
+      return reduceItems(item.items, fn, acc);
+    }
+
+    return acc;
+  }, init);
 }
+
+export const countLessons = (items: SectionItem[]): number =>
+  reduceItems(items, (sum) => sum + 1, 0);
+export const countTabs = (items: SectionItem[]): number =>
+  reduceItems(items, (sum, lesson) => sum + lesson.tabs.length, 0);
+export const countBackingTracks = (items: SectionItem[]) =>
+  reduceItems(items, (sum, lesson) => sum + lesson.backingGroups.length, 0);
 
 export function searchLesson(chapters: Chapter[], lessonId: string) {
   let currentLesson: { chapter: Chapter; lesson: Lesson } | undefined;
@@ -130,11 +152,11 @@ export function searchLesson(chapters: Chapter[], lessonId: string) {
 
 function findLesson(lessonId: string, items: SectionItem[]): Lesson | undefined {
   for (const item of items) {
-    if (item.type === "lesson" && item.id === lessonId) {
+    if (item.type === 'lesson' && item.id === lessonId) {
       return item;
     }
 
-    if (item.type === "section") {
+    if (item.type === 'section') {
       const found = findLesson(lessonId, item.items);
       if (found) return found;
     }
@@ -152,7 +174,7 @@ function findSiblings(lessonOrder: number, items: SectionItem[]): [Lesson | null
   let next = null;
 
   for (const item of items) {
-    if (item.type === "lesson") {
+    if (item.type === 'lesson') {
       if (item.order === lessonOrder - 1) {
         prev = item;
       } else if (item.order === lessonOrder + 1) {
@@ -164,7 +186,7 @@ function findSiblings(lessonOrder: number, items: SectionItem[]): [Lesson | null
       break;
     }
 
-    if (item.type === "section") {
+    if (item.type === 'section') {
       const [foundPrev, foundNext] = findSiblings(lessonOrder, item.items);
 
       prev ??= foundPrev;
@@ -182,11 +204,25 @@ export function getNextLessonId(method: Method, chapters: Chapter[]): string | u
 
   for (const chapter of chapters) {
     for (const stat of chapter.lessonsStatus) {
-      if (stat.status !== "done") {
+      if (stat.status !== 'done') {
         return stat.lessonId;
       }
     }
   }
 
   return undefined;
+}
+
+/**
+ * Returns the fraction of lessons marked seen, in [0, 1].
+ * Returns 0 for empty methods.
+ */
+export function methodProgressPct(method: Method): number {
+  const total = countLessons(method.items);
+
+  if (total === 0) {
+    return 0;
+  }
+
+  return Object.keys(method.progress).length / total;
 }

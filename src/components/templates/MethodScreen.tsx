@@ -1,11 +1,11 @@
-import { Folder } from "lucide-react";
-import { useEffect, useState } from "react";
-import Chip from "@/components/atoms/Chip";
-import MethodHero from "@/components/organisms/MethodHero";
-import SidebarNav from "@/components/organisms/SidebarNav";
-import useMethodView from "@/hooks/useMethodView";
-import { listMethods } from "@/lib/ipc";
-import type { Method } from "@/types/model";
+import { Folder } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Chip from '@/components/atoms/Chip';
+import MethodHero from '@/components/organisms/MethodHero';
+import SidebarNav from '@/components/organisms/SidebarNav';
+import useMethodView from '@/hooks/useMethodView';
+import { listMethods } from '@/lib/ipc';
+import type { Method } from '@/types/model';
 
 type MethodScreenProps = {
   method: Method;

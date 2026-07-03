@@ -1,10 +1,10 @@
-import { platform } from "@tauri-apps/plugin-os";
-import { Guitar } from "lucide-react";
-import { useEffect, useState } from "react";
-import Chip from "@/components/atoms/Chip";
-import WindowControls from "@/components/atoms/WindowControls";
-import Breadcrumb from "@/components/molecules/Breadcrumb";
-import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
+import { platform } from '@tauri-apps/plugin-os';
+import { Guitar } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import Chip from '@/components/atoms/Chip';
+import WindowControls from '@/components/atoms/WindowControls';
+import Breadcrumb from '@/components/molecules/Breadcrumb';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 
 type TitleBarProps = {
   connected: boolean;
@@ -15,7 +15,7 @@ export default function TitleBar({ connected }: TitleBarProps) {
   const { items: breadcrumb } = useBreadcrumb();
 
   useEffect(() => {
-    setIsMac(platform() === "macos");
+    setIsMac(platform() === 'macos');
   }, []);
 
   return (

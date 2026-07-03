@@ -1,7 +1,7 @@
-import { ChevronRight } from "lucide-react";
-import React from "react";
-import type { BreadcrumbItem } from "@/contexts/BreadcrumbContext";
-import cn from "@/lib/cn";
+import { ChevronRight } from 'lucide-react';
+import React from 'react';
+import type { BreadcrumbItem } from '@/contexts/BreadcrumbContext';
+import cn from '@/lib/cn';
 
 type BreadcrumbProps = {
   items: BreadcrumbItem[];
@@ -20,9 +20,9 @@ export default function Breadcrumb({ items }: BreadcrumbProps) {
             <button
               type="button"
               className={cn(
-                "max-w-56 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-none bg-none p-0 font-medium text-fg3 text-xs",
-                last && "font-semibold text-fg",
-                hasNoLink && "cursor-default!",
+                'max-w-56 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap border-none bg-none p-0 font-medium text-fg3 text-xs',
+                last && 'font-semibold text-fg',
+                hasNoLink && 'cursor-default!',
               )}
               onClick={c.onClick}
               disabled={hasNoLink}

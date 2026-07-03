@@ -4,7 +4,7 @@
 export interface Method {
   id: string;
   title: string;
-  source: { provider: "pcloud"; rootFolderId: number };
+  source: { provider: 'pcloud'; rootFolderId: number };
   defaultCountInBars: number;
   /** Ordered mix of lessons and sections at the method root, in DFS natural sort. */
   items: SectionItem[];
@@ -29,11 +29,11 @@ export interface LessonProgress {
 export type SectionItem = LessonItem | SectionFolder;
 
 export interface LessonItem extends Lesson {
-  type: "lesson";
+  type: 'lesson';
 }
 
 export interface SectionFolder extends Section {
-  type: "section";
+  type: 'section';
 }
 
 /** A structural folder (chapter, episode, part…). Arbitrarily nestable. */
@@ -81,7 +81,7 @@ export interface BackingTrack {
 
 export interface DocumentRef {
   file: FileRef;
-  kind: "pdf" | "image";
+  kind: 'pdf' | 'image';
   title: string;
 }
 
