@@ -21,6 +21,7 @@ pub fn handle<R: Runtime>(
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(500)
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(body)
                         .unwrap(),
                 );
@@ -68,7 +69,8 @@ async fn handle_inner<R: Runtime>(
     let mut builder = tauri::http::Response::builder()
         .status(resp.status)
         .header("Content-Type", resp.content_type)
-        .header("Accept-Ranges", "bytes");
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*");
 
     if let Some(cr) = resp.content_range {
         builder = builder.header("Content-Range", cr);

@@ -8,12 +8,14 @@ export type MediaType = 'video' | 'tab';
 export type Screen =
   | { id: 'library' }
   | { id: 'method'; method: Method }
-  | { id: 'player'; method: Method; lesson: Lesson; chapter: Chapter; mediaType: MediaType };
+  | { id: 'player'; method: Method; lesson: Lesson; chapter: Chapter; mediaType: MediaType }
+  | { id: 'documents'; method: Method };
 
 type NavAction =
   | { type: 'library' }
   | { type: 'method'; method: Method }
-  | { type: 'player'; lesson: Lesson; chapter: Chapter; mediaType: MediaType };
+  | { type: 'player'; lesson: Lesson; chapter: Chapter; mediaType: MediaType }
+  | { type: 'documents'; method: Method };
 
 function navReducer(screen: Screen, action: NavAction): Screen {
   switch (action.type) {
@@ -32,6 +34,8 @@ function navReducer(screen: Screen, action: NavAction): Screen {
         };
       }
       return screen;
+    case 'documents':
+      return { id: 'documents', method: action.method };
   }
 }
 
@@ -40,6 +44,7 @@ interface NavigationContextValue {
   goToLibrary: () => void;
   goToMethod: (method: Method) => void;
   openLesson: (lesson: Lesson, chapter: Chapter, mediaType: MediaType) => void;
+  listDocuments: (method: Method) => void;
 }
 
 const NavigationContext = createContext<NavigationContextValue | undefined>(undefined);
@@ -55,6 +60,10 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       dispatch({ type: 'player', lesson, chapter, mediaType }),
     [],
   );
+  const listDocuments = useCallback(
+    (method: Method) => dispatch({ type: 'documents', method }),
+    [],
+  );
 
   useEffect(() => {
     if (screen.id === 'library') {
@@ -63,6 +72,15 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       dispatchBreadcrumb({
         type: 'replace',
         payload: [{ label: 'Bibliothèque', onClick: goToLibrary }, { label: screen.method.title }],
+      });
+    } else if (screen.id === 'documents') {
+      dispatchBreadcrumb({
+        type: 'replace',
+        payload: [
+          { label: 'Bibliothèque', onClick: goToLibrary },
+          { label: screen.method.title, onClick: () => goToMethod(screen.method) },
+          { label: 'Documents' },
+        ],
       });
     } else {
       dispatchBreadcrumb({
@@ -77,8 +95,8 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   }, [screen, dispatchBreadcrumb, goToLibrary, goToMethod]);
 
   const value = useMemo(
-    () => ({ screen, goToLibrary, goToMethod, openLesson }),
-    [screen, goToLibrary, goToMethod, openLesson],
+    () => ({ screen, goToLibrary, goToMethod, openLesson, listDocuments }),
+    [screen, goToLibrary, goToMethod, openLesson, listDocuments],
   );
 
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;

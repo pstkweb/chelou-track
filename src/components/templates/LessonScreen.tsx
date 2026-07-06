@@ -56,7 +56,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="scroll flex-1">
-        <div className="mx-auto my-0 w-[min(1200px,100%)] p-[clamp(20px,3vw,44px)]">
+        <div className="mx-auto my-0 w-[min(1440px,100%)] p-[clamp(20px,3vw,44px)]">
           <div className="mb-5 flex flex-wrap items-center gap-3.5">
             <IconButton onClick={() => goToMethod(method)} title="Retourner à la méthode">
               <ChevronLeft size={24} className="text-accent" />

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Chip from '@/components/atoms/Chip';
 import MethodHero from '@/components/organisms/MethodHero';
 import SidebarNav from '@/components/organisms/SidebarNav';
+import { useNavigation } from '@/contexts/NavigationContext';
 import useMethodView from '@/hooks/useMethodView';
 import { listMethods } from '@/lib/ipc';
 import type { Method } from '@/types/model';
@@ -12,12 +13,16 @@ type MethodScreenProps = {
 };
 
 export default function MethodScreen({ method: initial }: MethodScreenProps) {
+  const { listDocuments } = useNavigation();
   const [method, setMethod] = useState(initial);
 
   useEffect(() => {
     listMethods().then((methods) => {
       const fresh = methods.find((m) => m.id === initial.id);
-      if (fresh) setMethod(fresh);
+
+      if (fresh) {
+        setMethod(fresh);
+      }
     });
   }, [initial.id]);
 
@@ -30,9 +35,17 @@ export default function MethodScreen({ method: initial }: MethodScreenProps) {
 
         <div className="mx-0 mt-9 mb-4 flex items-center justify-between">
           <h2 className="display m-0 text-2xl">Chapitres</h2>
-          <Chip as="button" className="cursor-pointer" onClick={() => {}}>
-            <Folder size={15} /> Dossier documents · {method.documents.length}
-          </Chip>
+          {method.documents.length > 0 && (
+            <Chip
+              as="button"
+              className="cursor-pointer"
+              onClick={() => {
+                listDocuments(method);
+              }}
+            >
+              <Folder size={15} /> Dossier documents · {method.documents.length}
+            </Chip>
+          )}
         </div>
 
         <SidebarNav chapters={chapters} currentChapterId={currentChapter?.id} />
