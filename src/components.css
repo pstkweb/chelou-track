@@ -284,7 +284,7 @@
   height: 38px;
   padding: 0 16px;
   border: 1px solid var(--border-2);
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--chip);
   color: var(--text);
   font-size: var(--fs);
@@ -363,7 +363,7 @@
 
 input.search {
   height: 38px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
@@ -457,7 +457,7 @@ input.search:focus {
 .toast {
   pointer-events: auto;
   padding: 10px 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-md);
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);

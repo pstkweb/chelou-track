@@ -17,6 +17,16 @@ problème n'est pas évident à première vue.
 
 **Composants React** — taille et découpage (`atoms/molecules/organisms/templates/pages`),
 usage de `useState`/`useEffect`/`useRef`. Signaux à traiter en priorité :
+- **taille du fichier hors norme pour son rôle** : systématiquement compter les lignes (`wc -l`)
+  et comparer au fichier du même dossier le plus proche par fonction — pas juste "c'est long" dans
+  l'absolu. Si un composant équivalent existe déjà dans la codebase (ex. deux lecteurs média,
+  `VideoPlayer.tsx` vs `TabScreen.tsx`) et qu'il a établi un patron de découpage (hooks custom dans
+  `src/hooks/` pour chaque intégration API impérative autonome, sous-composants
+  `atoms/molecules/organisms` pour les blocs JSX isolables), un nouveau composant 2x plus long qui
+  n'a pas suivi ce patron est le signal le plus fort — le projet a déjà la réponse, il suffit de la
+  citer avec les noms de hooks existants en exemple. Toujours proposer des frontières concrètes
+  (quel bloc de state+effet devient quel hook, quel bloc JSX devient quel sous-composant) plutôt
+  qu'un conseil abstrait ("découpe ce composant") ;
 - état dérivé synchronisé via `useEffect` alors qu'il pourrait être calculé au rendu (le classique
   anti-pattern React) ;
 - `useState(propValue)` qui ne se resynchronise jamais si `propValue` change après le montage —

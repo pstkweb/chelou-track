@@ -10,6 +10,7 @@ import { ToastProvider } from '@/contexts/ToastContext';
 import useSystemTheme from '@/hooks/useSystemTheme';
 import { getAuthStatus, listMethods, markLessonSeen } from '@/lib/ipc';
 import DocumentsScreen from '../templates/DocumentsScreen';
+import TabScreen from '../templates/TabScreen';
 
 type AppState = 'loading' | 'no-auth' | 'no-methods' | 'ready';
 
@@ -33,6 +34,18 @@ function AuthenticatedView() {
         method={screen.method}
         lesson={screen.lesson}
         onVideoEnd={handleVideoEnded}
+      />
+    );
+  }
+
+  if (screen.id === 'tab') {
+    return (
+      <TabScreen
+        key={screen.tab.id}
+        chapter={screen.chapter}
+        method={screen.method}
+        lesson={screen.lesson}
+        tab={screen.tab}
       />
     );
   }

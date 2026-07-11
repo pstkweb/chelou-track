@@ -20,7 +20,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
   const lessonMeta = chapter.lessonsStatus.find((stat) => stat.lessonId === lesson.id);
   const lessonStatus = lessonMeta?.status || 'todo';
 
-  const { openLesson, goToMethod } = useNavigation();
+  const { openLesson, openTab, goToMethod } = useNavigation();
   const [done, setDone] = useState(lessonStatus === 'done');
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
   const handleVideoEnd = () => {
@@ -87,7 +87,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                       key={tab.id}
                       type="button"
                       className="card ex-card"
-                      onClick={() => openLesson(lesson, chapter, 'tab')}
+                      onClick={() => openTab(lesson, chapter, tab)}
                     >
                       <div className="flex items-center gap-3">
                         <div
@@ -117,7 +117,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                 <NavLesson
                   dir="prev"
                   title={previousLesson.title}
-                  onClick={() => openLesson(previousLesson, chapter, 'video')}
+                  onClick={() => openLesson(previousLesson, chapter)}
                 />
               )}
             </div>
@@ -130,7 +130,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
                 <NavLesson
                   dir="next"
                   title={nextLesson.title}
-                  onClick={() => openLesson(nextLesson, chapter, 'video')}
+                  onClick={() => openLesson(nextLesson, chapter)}
                 />
               )}
             </div>

@@ -48,7 +48,7 @@ export default function MethodHero({ title, methodStats, currentLesson }: Method
             <Button
               variant="primary"
               size="lg"
-              onClick={() => openLesson(currentLesson.lesson, currentLesson.chapter, 'video')}
+              onClick={() => openLesson(currentLesson.lesson, currentLesson.chapter)}
             >
               <Play size={18} /> {methodStats.hasProgress ? 'Reprendre' : 'Commencer'} ·{' '}
               {currentLesson.lesson.title.slice(0, 28)}

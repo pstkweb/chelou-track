@@ -30,7 +30,7 @@ pub struct ScanEvent {
     pub methods_found: u32,
 }
 
-static BPM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?<bpm>\d+) ?bpm").unwrap());
+static BPM_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(?<bpm>\d+) ?bpm").unwrap());
 
 // Strips leading numeric/CHAP prefixes from folder names used as section titles.
 // Handles: "1 - Titre", "01. Titre", "CHAP 1 Titre", "1 CHAP 1 - Titre", etc.
@@ -327,9 +327,7 @@ fn file_ref(entry: &Entry) -> FileRef {
 }
 
 fn parse_bpm(name: &str) -> u32 {
-    let lower = name.to_lowercase();
-
-    if let Some(captures) = BPM_RE.captures(&lower) {
+    if let Some(captures) = BPM_RE.captures(name) {
         if let Ok(n) = captures["bpm"].parse() {
             return n;
         }
@@ -435,7 +433,7 @@ fn consume_number(iter: &mut std::iter::Peekable<std::str::Chars>) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::clean_section_title;
+    use super::{clean_section_title, parse_bpm, radical_of};
 
     #[test]
     fn strips_chap_prefix() {
@@ -481,5 +479,23 @@ mod tests {
     fn fallback_when_stripping_leaves_empty() {
         assert_eq!(clean_section_title("CHAP 1"), "CHAP 1");
         assert_eq!(clean_section_title("1"), "1");
+    }
+
+    #[test]
+    fn radical_of_ignores_bpm_case() {
+        assert_eq!(
+            radical_of("Drum Backing track 100 BPM (Training échauffements ludiques).wav"),
+            radical_of("Drum Backing track 90 BPM (Training échauffements ludiques).wav")
+        );
+        assert_eq!(
+            radical_of("BT CLAQUE 60BPM.wav"),
+            radical_of("BT CLAQUE 85BPM.wav")
+        );
+    }
+
+    #[test]
+    fn parse_bpm_ignores_case() {
+        assert_eq!(parse_bpm("BT CLAQUE 60BPM.wav"), 60);
+        assert_eq!(parse_bpm("Star'nStop 1 galop 140BPM.wav"), 140);
     }
 }

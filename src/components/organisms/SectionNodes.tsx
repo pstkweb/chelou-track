@@ -1,6 +1,6 @@
 import LessonRow from '@/components/molecules/LessonRow';
 import cn from '@/lib/cn';
-import { type Chapter, countLessons } from '@/lib/method-view';
+import type { Chapter } from '@/lib/method-view';
 import type { SectionItem } from '@/types/model';
 
 type SectionNodesProps = {
@@ -42,7 +42,6 @@ export default function SectionNodes({
           <div className={cn('section-title', isEpisode && 'section-title--episode')}>
             {item.title}
           </div>
-          <span className="mono text-fg3 text-xs">{countLessons([item])}</span>
         </div>
         <div className="ml-2 border-l border-l-border pl-3">
           <SectionNodes

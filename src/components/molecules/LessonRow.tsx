@@ -1,6 +1,5 @@
 import { ChevronRight, Music, Volume2 } from 'lucide-react';
 import Chip from '@/components/atoms/Chip';
-import IconButton from '@/components/atoms/IconButton';
 import StatusDot from '@/components/atoms/StatusDot';
 import { useNavigation } from '@/contexts/NavigationContext';
 import cn from '@/lib/cn';
@@ -19,14 +18,14 @@ export default function LessonRow({ lesson, status, chapter, active }: LessonRow
 
   const handleEnterPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      openLesson(lesson, chapter, 'video');
+      openLesson(lesson, chapter);
     }
   };
 
   return (
     <div
       className={cn(`tree-row ${status}`, active && 'active')}
-      onClick={() => openLesson(lesson, chapter, 'video')}
+      onClick={() => openLesson(lesson, chapter)}
       onKeyDown={handleEnterPress}
     >
       <div className="relative z-10 flex flex-1 items-center gap-3">
@@ -36,7 +35,7 @@ export default function LessonRow({ lesson, status, chapter, active }: LessonRow
           <div className="mt-1 flex flex-wrap items-center gap-3">
             {lesson.tabs.length > 0 && (
               <span className="t-meta inline-flex items-center gap-1 text-accent!">
-                <Music size={13} /> Tablature
+                <Music size={13} /> Tablature{lesson.tabs.length === 1 ? '' : 's'}
               </span>
             )}
             {lesson.backingGroups.length > 0 && (
@@ -48,15 +47,6 @@ export default function LessonRow({ lesson, status, chapter, active }: LessonRow
           </div>
         </div>
         {status === 'current' && <Chip className="h-6 text-accent text-xs">En cours</Chip>}
-        {lesson.tabs.length > 0 && (
-          <IconButton
-            className="size-8"
-            title="Ouvrir la tablature"
-            onClick={() => openLesson(lesson, chapter, 'tab')}
-          >
-            <Music size={16} />
-          </IconButton>
-        )}
         <ChevronRight size={16} className="text-fg3" />
       </div>
     </div>

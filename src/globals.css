@@ -98,3 +98,32 @@
     color: var(--accent-contrast);
   }
 }
+
+/* ---- Custom --------------------------------------------------------------- */
+@utility bg-mix-* {
+  background-color: color-mix(
+        in srgb,
+        --value(--*) --modifier(integer)%,
+        transparent
+    );
+
+  background-color: color-mix(
+        in srgb,
+        --value([*]) --modifier(integer)%,
+        transparent
+    );
+}
+
+@utility border-mix-* {
+  border-color: color-mix(
+        in srgb,
+        --value(--*) --modifier(integer)%,
+        transparent
+    );
+
+  border-color: color-mix(
+        in srgb,
+        --value([*]) --modifier(integer)%,
+        transparent
+    );
+}

@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",
-    "@coderline/alphatab": "^1.8.3",
+    "@coderline/alphatab": "^1.8.4",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.3",
     "@types/node": "^26.0.1",

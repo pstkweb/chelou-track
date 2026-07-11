@@ -87,7 +87,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
             {oauthErr && (
               <div
                 role="alert"
-                className="mb-4 flex items-start gap-2.5 rounded border-[color-mix(in_srgb,var(--color-red-800)_45%,transparent)] bg-[color-mix(in_srgb,var(--color-red-800)_12%,transparent)] px-3.5 py-3 text-red-800 text-sm/snug"
+                className="mb-4 flex items-start gap-2.5 rounded border-mix-(--color-red-800)/45 bg-mix-(--color-red-800)/12 px-3.5 py-3 text-red-800 text-sm/snug"
               >
                 <span className="mt-0.5 flex-initial">
                   <AlertCircle size={16} />
