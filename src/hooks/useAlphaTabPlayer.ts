@@ -24,6 +24,13 @@ export default function useAlphaTabPlayer(
   tabFile: number | undefined,
 ) {
   const alphaTabRef = useRef<AlphaTabApi>(null);
+  const beatsPerBarRef = useRef(4);
+  const notatedBpmRef = useRef(120);
+  const scoreLoadedRef = useRef<Promise<void>>(new Promise(() => {}));
+  // Renseignés par l'appelant (TabScreen) à chaque changement de backing track — lus par
+  // seekTo() ci-dessous pour convertir un temps "noté" (domaine AlphaTab) en temps audio réel.
+  const trackBpmRef = useRef<number | undefined>(undefined);
+  const leadInMsRef = useRef<number | undefined>(undefined);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs stables, lues une fois au montage
   useEffect(() => {
@@ -55,9 +62,20 @@ export default function useAlphaTabPlayer(
       },
       player: {
         playerMode: 'EnabledExternalMedia',
+        enableCursor: true,
       },
     });
     alphaTabRef.current = instance;
+
+    let resolveScoreLoaded: () => void = () => {};
+    scoreLoadedRef.current = new Promise((resolve) => {
+      resolveScoreLoaded = resolve;
+    });
+    instance.scoreLoaded.on((score) => {
+      beatsPerBarRef.current = score.masterBars[0]?.timeSignatureNumerator ?? 4;
+      notatedBpmRef.current = score.tempo || 120;
+      resolveScoreLoaded();
+    });
 
     if (audio) {
       // le handler externe ne peut être branché qu'une fois le player interne prêt
@@ -88,7 +106,21 @@ export default function useAlphaTabPlayer(
             audio.volume = value;
           },
           seekTo(time) {
-            audio.currentTime = (time * audio.playbackRate) / 1000;
+            const trackBpm = trackBpmRef.current;
+            const leadInMs = leadInMsRef.current;
+
+            if (time <= 0 || trackBpm === undefined || leadInMs === undefined) {
+              // Seek au tout début (ou lead-in pas encore connu) : redémarre depuis le
+              // vrai début du fichier (silence + count-in inclus), comme une première
+              // lecture — pas juste le premier temps noté (qui correspondrait à leadInMs).
+              audio.currentTime = 0;
+              return;
+            }
+
+            // Inverse de la mise à l'échelle faite dans TabScreen.onTimeUpdate :
+            // notatedMs = (audioMs - leadInMs) * (trackBpm / notatedBpm)
+            const scale = trackBpm / notatedBpmRef.current;
+            audio.currentTime = (time / scale + leadInMs) / 1000;
           },
           play() {
             audio.play();
@@ -117,5 +149,5 @@ export default function useAlphaTabPlayer(
     };
   }, [tabFile]);
 
-  return alphaTabRef;
+  return { alphaTabRef, beatsPerBarRef, notatedBpmRef, scoreLoadedRef, trackBpmRef, leadInMsRef };
 }

@@ -1,4 +1,3 @@
-import type { synth } from '@coderline/alphatab';
 import {
   ChevronLeft,
   Metronome,
@@ -9,10 +8,13 @@ import {
   SkipBack,
   SkipForward,
   Video,
+  Volume2,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import useAlphaTabPlayer from '@/hooks/useAlphaTabPlayer';
+import useBackingTrackPlayback from '@/hooks/useBackingTrackPlayback';
+import useLeadInDetection from '@/hooks/useLeadInDetection';
 import useMetronome from '@/hooks/useMetronome';
 import cn from '@/lib/cn';
 import { type Chapter, searchSiblings } from '@/lib/method-view';
@@ -21,6 +23,7 @@ import type { BackingGroup, Lesson, Method, TabSet } from '@/types/model';
 import Button from '../atoms/Button';
 import Chip from '../atoms/Chip';
 import IconButton from '../atoms/IconButton';
+import MixSlider from '../molecules/MixSlider';
 import BackingTrackPicker from '../organisms/BackingTrackPicker';
 
 type TabScreenProps = {
@@ -31,106 +34,75 @@ type TabScreenProps = {
 };
 
 export default function TabScreen({ lesson, chapter, method, tab }: TabScreenProps) {
-  const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(false);
   const [metro, setMetro] = useState(true);
   const [backingTrack, setBackingTrack] = useState<BackingGroup | undefined>(
     lesson.backingGroups[0] || undefined,
   );
   const [backingTrackSpeed, setBackingTrackSpeed] = useState(backingTrack?.tracks[0]);
+  // Mix backing track / clic de métronome, 0-100 (échelle des sliders) — cf. wiring plus bas.
+  const [mix, setMix] = useState({ backing: 100, click: 100 });
 
   const tabElmt = useRef<HTMLDivElement>(null);
   const audioElmt = useRef<HTMLAudioElement>(null);
-  const updateTimer = useRef<number>(null);
 
   const { openLesson } = useNavigation();
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
-  const alphaTabRef = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId);
-  const { start: startMetronome, stop: stopMetronome } = useMetronome(
+  const { alphaTabRef, beatsPerBarRef, notatedBpmRef, scoreLoadedRef, trackBpmRef, leadInMsRef } =
+    useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId);
+  const { tick: tickMetronome, reset: resetMetronomeBeat } = useMetronome(
     backingTrackSpeed?.bpm,
     metro,
+    mix.click / 100,
   );
+  const detectedLeadInMs = useLeadInDetection(
+    method,
+    lesson,
+    backingTrackSpeed,
+    scoreLoadedRef,
+    beatsPerBarRef,
+  );
+  const {
+    countIn,
+    playing,
+    resetPlayback,
+    onTogglePlay,
+    audioProps: { onPause, onPlay, onRateChange, onTimeUpdate, onVolumeChange },
+  } = useBackingTrackPlayback(
+    alphaTabRef,
+    audioElmt,
+    leadInMsRef,
+    notatedBpmRef,
+    beatsPerBarRef,
+    method,
+    backingTrackSpeed,
+    tickMetronome,
+    resetMetronomeBeat,
+  );
+  // Résultat de la détection pour la session en cours, tant que la persistance Rust
+  // (fire-and-forget) n'a pas fait revivre backingTrackSpeed.leadInMsOverride via un
+  // rechargement du Method — sinon un track jamais joué avant reste sans lead-in connu
+  // jusqu'au prochain redémarrage de l'app, cf. bug rapporté (pas de count-in, tout désynchro).
+  const effectiveLeadInMs = backingTrackSpeed?.leadInMsOverride ?? detectedLeadInMs;
 
-  const onTimeUpdate = () => {
+  // Volume de la piste backing track — appliqué impérativement (le prop `volume` de <audio>
+  // n'est pas synchronisé par React, il faut passer par le DOM directement). Pas besoin de
+  // redéclencher au changement de piste : c'est le même <audio> qui change de `src`, son
+  // volume natif (propriété de l'élément, pas de la ressource chargée) reste inchangé.
+  useEffect(() => {
     const audio = audioElmt.current;
-    const api = alphaTabRef.current;
-
-    const player = api?.player;
-
-    if (!audio || !player) {
-      return;
+    if (audio) {
+      audio.volume = mix.backing / 100;
     }
+  }, [mix.backing]);
 
-    // updatePosition (pas tickPosition : son setter déclenche un vrai seek à chaque appel,
-    // ce qui interrompt la lecture au lieu de se contenter de déplacer le curseur)
-    (player.output as unknown as synth.IExternalMediaSynthOutput).updatePosition(
-      audio.currentTime * 1000,
-    );
-  };
-
-  const onPlay = () => {
-    const api = alphaTabRef.current;
-
-    if (!api) {
-      return;
-    }
-
-    api.play();
-    updateTimer.current = window.setInterval(onTimeUpdate, 50);
-
-    startMetronome();
-  };
-
-  const onPause = () => {
-    const api = alphaTabRef.current;
-
-    if (api) {
-      api.pause();
-    }
-
-    if (updateTimer.current) {
-      clearInterval(updateTimer.current);
-      updateTimer.current = null;
-    }
-
-    stopMetronome();
-  };
-
-  const onVolumeChange = () => {
-    const audio = audioElmt.current;
-    const api = alphaTabRef.current;
-
-    if (!audio || !api) {
-      return;
-    }
-
-    api.masterVolume = audio.volume;
-  };
-
-  const onRateChange = () => {
-    const audio = audioElmt.current;
-    const api = alphaTabRef.current;
-
-    if (!audio || !api) {
-      return;
-    }
-
-    api.playbackSpeed = audio.playbackRate;
-  };
-
-  const stopPlayback = () => {
-    setPlaying(false);
-    audioElmt.current?.pause();
-  };
-
-  const onTogglePlay = () => {
-    if (playing) {
-      stopPlayback();
-    } else {
-      setPlaying(true);
-      audioElmt.current?.play();
-    }
-  };
+  // Tient à jour les refs que useAlphaTabPlayer.seekTo() lit pour convertir un seek (clic
+  // sur la tablature) en position audio réelle — seekTo vit dans le hook et n'a pas accès
+  // à cet état de composant autrement.
+  useEffect(() => {
+    trackBpmRef.current = backingTrackSpeed?.bpm;
+    leadInMsRef.current = effectiveLeadInMs;
+  }, [backingTrackSpeed, effectiveLeadInMs, trackBpmRef, leadInMsRef]);
 
   return (
     <div className="grain relative flex min-h-0 flex-1 flex-col">
@@ -199,10 +171,19 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
         </div>
       </div>
 
+      {countIn !== undefined && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-mix-(--bg)/55 bg-mix-blur backdrop-blur-xs">
+          <div className="display text-9xl text-accent">{countIn === 0 ? '--' : countIn}</div>
+        </div>
+      )}
+
       {lesson.backingGroups.length > 0 && (
         <div className="flex-initial border-border border-t bg-bg2 px-[clamp(16px,3vw,28px)] py-3">
           <div className="flex flex-wrap items-center gap-[clamp(12px,2vw,24px)]">
             <div className="flex items-center gap-1.5">
+              <IconButton onClick={resetPlayback} title="Début">
+                <SkipBack size={20} />
+              </IconButton>
               <Button
                 variant="primary"
                 onClick={onTogglePlay}
@@ -218,19 +199,21 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               selectedTrack={backingTrackSpeed}
               onGroupSelect={setBackingTrack}
               onTrackSelect={(track) => {
-                stopPlayback();
+                resetPlayback();
                 setBackingTrackSpeed(track);
               }}
             />
 
             <div className="flex items-center gap-1">
-              <IconButton
-                onClick={() => setLoop((l) => !l)}
-                title="Répéter"
-                className={cn('bg-transparent text-fg3', loop && 'bg-chip! text-accent!')}
-              >
-                <RefreshCcw size={19} />
-              </IconButton>
+              {false /* TODO */ && (
+                <IconButton
+                  onClick={() => setLoop((l) => !l)}
+                  title="Répéter"
+                  className={cn('bg-transparent text-fg3', loop && 'bg-chip! text-accent!')}
+                >
+                  <RefreshCcw size={19} />
+                </IconButton>
+              )}
               <IconButton
                 onClick={() => setMetro((m) => !m)}
                 title="Métronome"
@@ -238,6 +221,21 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               >
                 <Metronome size={19} />
               </IconButton>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <MixSlider
+                label="Backing"
+                icon={Volume2}
+                value={mix.backing}
+                onChange={(v) => setMix((m) => ({ ...m, backing: v }))}
+              />
+              <MixSlider
+                label="Clic"
+                icon={Metronome}
+                value={mix.click}
+                onChange={(v) => setMix((m) => ({ ...m, click: v }))}
+              />
             </div>
           </div>
         </div>

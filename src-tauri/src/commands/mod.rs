@@ -176,3 +176,17 @@ pub async fn update_lesson_resume(
         .update_lesson_resume(&method_id, &lesson_id, resume_ms)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn update_backing_track_lead_in_override(
+    state: State<'_, AppState>,
+    method_id: String,
+    lesson_id: String,
+    file_id: u64,
+    lead_in_ms: f64,
+) -> Result<(), String> {
+    state
+        .manifest
+        .update_backing_track_lead_in_override(&method_id, &lesson_id, file_id, lead_in_ms)
+        .map_err(|e| e.to_string())
+}

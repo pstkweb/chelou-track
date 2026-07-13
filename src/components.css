@@ -410,7 +410,7 @@ input.search:focus {
   letter-spacing: 0.05em;
 }
 
-.section-title--episode {
+.section-title--high-level {
   font-family: var(--font-display);
   font-size: var(--fs);
   color: var(--text);
@@ -480,4 +480,21 @@ input.search:focus {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Curseur de lecture AlphaTab (player.enableCursor, cf. hooks/useAlphaTabPlayer.ts).
+   AlphaTab crée/positionne ces éléments lui-même mais ne fournit aucune couleur par
+   défaut : sans ce CSS le curseur est fonctionnel (position correcte) mais invisible. */
+.at-cursor-bar {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.at-cursor-beat {
+  background: var(--accent);
+  width: 3px;
+}
+
+.at-highlight * {
+  fill: var(--accent);
+  stroke: var(--accent);
 }

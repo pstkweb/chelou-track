@@ -48,7 +48,11 @@ export default function MethodScreen({ method: initial }: MethodScreenProps) {
           )}
         </div>
 
-        <SidebarNav chapters={chapters} currentChapterId={currentChapter?.id} />
+        <SidebarNav
+          chapters={chapters}
+          currentChapterId={currentChapter?.id}
+          currentLessonId={currentLesson?.lesson.id}
+        />
       </div>
     </div>
   );

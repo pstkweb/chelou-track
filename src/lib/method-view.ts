@@ -33,7 +33,6 @@ export function getChapters(method: Method): Chapter[] {
     }
 
     const chapterMeta: ChapterMeta = { lessonsStatus: [], tabsCount: 0, num: i };
-
     iterateFolder(item, chapterMeta, method.progress);
 
     chapters.push({ ...item, ...chapterMeta });

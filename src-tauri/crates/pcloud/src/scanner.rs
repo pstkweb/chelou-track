@@ -345,7 +345,6 @@ fn backing_track(entry: &Entry) -> BackingTrack {
         audio: file_ref(entry),
         bpm: parse_bpm(&entry.name),
         lead_in_ms_override: None,
-        sync_points: None,
     }
 }
 

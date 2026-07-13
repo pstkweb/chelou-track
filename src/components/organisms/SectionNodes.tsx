@@ -6,14 +6,14 @@ import type { SectionItem } from '@/types/model';
 type SectionNodesProps = {
   items: SectionItem[];
   chapter: Chapter;
-  currentChapterId: string | undefined;
+  currentLessonId: string | undefined;
   depth?: number;
 };
 
 export default function SectionNodes({
   items,
   chapter,
-  currentChapterId,
+  currentLessonId,
   depth = 0,
 }: SectionNodesProps) {
   return items.map((item) => {
@@ -24,12 +24,12 @@ export default function SectionNodes({
           lesson={item}
           status={chapter.lessonsStatus.find((stat) => stat.lessonId === item.id)?.status || 'todo'}
           chapter={chapter}
-          active={item.id === currentChapterId}
+          active={item.id === currentLessonId}
         />
       );
     }
 
-    const isEpisode = depth === 0;
+    const isHighLevelSection = depth === 0;
 
     return (
       <div key={item.id} className={cn('mb-2', depth === 0 && 'mb-3.5')}>
@@ -37,9 +37,12 @@ export default function SectionNodes({
           className={cn('flex items-center gap-2 px-0.5 pt-1 pb-1.5', depth === 0 && 'pt-1.5 pb-2')}
         >
           <span
-            className={cn('size-1.5 flex-initial rounded-full bg-fg3', isEpisode && 'bg-accent')}
+            className={cn(
+              'size-1.5 flex-initial rounded-full bg-fg3',
+              isHighLevelSection && 'bg-accent',
+            )}
           />
-          <div className={cn('section-title', isEpisode && 'section-title--episode')}>
+          <div className={cn('section-title', isHighLevelSection && 'section-title--high-level')}>
             {item.title}
           </div>
         </div>
@@ -47,7 +50,7 @@ export default function SectionNodes({
           <SectionNodes
             items={item.items}
             chapter={chapter}
-            currentChapterId={currentChapterId}
+            currentLessonId={currentLessonId}
             depth={depth + 1}
           />
         </div>

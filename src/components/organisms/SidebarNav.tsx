@@ -7,10 +7,15 @@ import SectionNodes from './SectionNodes';
 
 type SidebarNavProps = {
   currentChapterId: string | undefined;
+  currentLessonId: string | undefined;
   chapters: Chapter[];
 };
 
-export default function SidebarNav({ chapters, currentChapterId }: SidebarNavProps) {
+export default function SidebarNav({
+  chapters,
+  currentChapterId,
+  currentLessonId,
+}: SidebarNavProps) {
   const [selectedChapterId, setSelectedChapterId] = useState(
     currentChapterId ?? chapters.at(0)?.id,
   );
@@ -85,7 +90,7 @@ export default function SidebarNav({ chapters, currentChapterId }: SidebarNavPro
           <SectionNodes
             items={selectedChapter.items}
             chapter={selectedChapter}
-            currentChapterId={currentChapterId}
+            currentLessonId={currentLessonId}
           />
         </div>
       )}

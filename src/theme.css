@@ -48,11 +48,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection {
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-
 button {
   font-family: inherit;
   cursor: pointer;

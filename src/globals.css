@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
-/* le mode sombre suit l'attribut [data-mode="dark"] (ou la classe .dark) */
-@custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"], .dark *, .dark));
+/* le mode sombre suit l'attribut [data-mode="dark"] */
+@custom-variant dark (&:where([data-mode="dark"] *, [data-mode="dark"]));
 
 /* ---- Valeurs brutes des tokens -------------------------------------------- */
 :root {
@@ -35,11 +35,11 @@
   --text-3: #8893a0;
   --chip: rgba(15, 20, 26, 0.04);
   --shadow: 0 10px 30px rgba(15, 25, 35, 0.1);
+  --media: linear-gradient(135deg, #20242b, #13161b);
 }
 
 /* ---- Surcharge SOMBRE ----------------------------------------------------- */
-[data-mode="dark"],
-.dark {
+[data-mode="dark"] {
   --accent: #c8f24a;
   --accent-contrast: #0a0b0d;
   --bg: #0a0b0d;

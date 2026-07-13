@@ -75,8 +75,10 @@ export interface BackingGroup {
 export interface BackingTrack {
   audio: FileRef;
   bpm: number;
-  leadInMsOverride?: number; // if absent, derived from bpm + beatsPerBar + defaultCountInBars
-  syncPoints?: SyncPoint[]; // for exceptional variable-tempo tracks
+  // Final lead-in offset (ms). If absent, derived from bpm + beatsPerBar + defaultCountInBars.
+  // Populated automatically by TabScreen's background detection, or set manually to correct
+  // a track — same field either way, whichever set it last wins.
+  leadInMsOverride?: number;
 }
 
 export interface DocumentRef {
@@ -88,9 +90,4 @@ export interface DocumentRef {
 export interface FileRef {
   fileId: number;
   name: string;
-}
-
-export interface SyncPoint {
-  audioMs: number;
-  tick: number;
 }

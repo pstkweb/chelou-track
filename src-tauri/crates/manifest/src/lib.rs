@@ -64,6 +64,22 @@ fn items_have_lessons(items: &[SectionItem]) -> bool {
     })
 }
 
+/// Finds a `Lesson` by id anywhere in the (possibly nested) items tree.
+fn find_lesson_mut<'a>(items: &'a mut [SectionItem], lesson_id: &str) -> Option<&'a mut Lesson> {
+    for item in items {
+        match item {
+            SectionItem::Lesson(l) if l.id == lesson_id => return Some(l),
+            SectionItem::Section(s) => {
+                if let Some(l) = find_lesson_mut(&mut s.items, lesson_id) {
+                    return Some(l);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MethodSource {
     pub provider: String,
@@ -106,10 +122,11 @@ pub struct BackingGroup {
 pub struct BackingTrack {
     pub audio: FileRef,
     pub bpm: u32,
+    /// Final lead-in offset (ms) used to anchor tablature sync to this track's real start.
+    /// Populated automatically by TabScreen's background detection the first time a track
+    /// is selected, or manually if a track needs correcting. Once set, nothing recomputes it.
     #[serde(rename = "leadInMsOverride", skip_serializing_if = "Option::is_none")]
     pub lead_in_ms_override: Option<f64>,
-    #[serde(rename = "syncPoints", skip_serializing_if = "Option::is_none")]
-    pub sync_points: Option<Vec<SyncPoint>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,13 +148,6 @@ pub struct FileRef {
     #[serde(rename = "fileId")]
     pub file_id: u64,
     pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncPoint {
-    #[serde(rename = "audioMs")]
-    pub audio_ms: f64,
-    pub tick: u32,
 }
 
 // --- Persistence ---
@@ -216,6 +226,30 @@ impl ManifestStore {
         })
     }
 
+    /// Cache the final lead-in offset (ms) for a backing track, computed by the leading-
+    /// silence detection (real beatsPerBar from AlphaTab, done in TabScreen.tsx). No-op if
+    /// the lesson or the track's file_id isn't found — never errors for that reason, only
+    /// for I/O failures.
+    pub fn update_backing_track_lead_in_override(
+        &self,
+        method_id: &str,
+        lesson_id: &str,
+        file_id: u64,
+        lead_in_ms: f64,
+    ) -> Result<()> {
+        self.update_method(method_id, |m| {
+            if let Some(lesson) = find_lesson_mut(&mut m.items, lesson_id) {
+                for group in &mut lesson.backing_groups {
+                    for track in &mut group.tracks {
+                        if track.audio.file_id == file_id {
+                            track.lead_in_ms_override = Some(lead_in_ms);
+                        }
+                    }
+                }
+            }
+        })
+    }
+
     fn update_method(&self, id: &str, f: impl FnOnce(&mut Method)) -> Result<()> {
         let path = self.base_dir.join(format!("{id}.json"));
         let json = std::fs::read_to_string(&path)?;
@@ -261,7 +295,6 @@ mod tests {
                     },
                     bpm: 120,
                     lead_in_ms_override: None,
-                    sync_points: None,
                 }],
             }],
         }
@@ -348,10 +381,6 @@ mod tests {
             track0.get("leadInMsOverride").is_none(),
             "must be absent when None"
         );
-        assert!(
-            track0.get("syncPoints").is_none(),
-            "must be absent when None"
-        );
 
         let section_item = &items[1];
         assert_eq!(
@@ -395,5 +424,88 @@ mod tests {
             panic!("expected lesson")
         };
         assert_eq!(l3.order, 3);
+    }
+
+    #[test]
+    fn update_backing_track_lead_in_override_updates_top_level_lesson() {
+        let dir = std::env::temp_dir().join(format!(
+            "chelou-manifest-test-toplevel-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = ManifestStore::new(dir.clone());
+        store.save(&sample_method()).unwrap();
+
+        store
+            .update_backing_track_lead_in_override("test-method", "lesson-1", 3, 1490.0)
+            .unwrap();
+
+        let reloaded = store.load_all().unwrap();
+        let loaded = reloaded.iter().find(|m| m.id == "test-method").unwrap();
+        let SectionItem::Lesson(lesson) = &loaded.items[0] else {
+            panic!("expected lesson at index 0");
+        };
+        assert_eq!(
+            lesson.backing_groups[0].tracks[0].lead_in_ms_override,
+            Some(1490.0)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn update_backing_track_lead_in_override_updates_lesson_nested_in_section() {
+        let dir = std::env::temp_dir().join(format!(
+            "chelou-manifest-test-nested-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = ManifestStore::new(dir.clone());
+        store.save(&sample_method()).unwrap();
+
+        // lesson-2 lives inside the "CHAP 1 Intro" section — exercises the recursive lookup.
+        store
+            .update_backing_track_lead_in_override("test-method", "lesson-2", 3, 2990.0)
+            .unwrap();
+
+        let reloaded = store.load_all().unwrap();
+        let loaded = reloaded.iter().find(|m| m.id == "test-method").unwrap();
+        let SectionItem::Section(section) = &loaded.items[1] else {
+            panic!("expected section at index 1");
+        };
+        let SectionItem::Lesson(lesson) = &section.items[0] else {
+            panic!("expected lesson inside section");
+        };
+        assert_eq!(
+            lesson.backing_groups[0].tracks[0].lead_in_ms_override,
+            Some(2990.0)
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn update_backing_track_lead_in_override_is_noop_for_unknown_lesson() {
+        let dir = std::env::temp_dir().join(format!(
+            "chelou-manifest-test-unknown-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = ManifestStore::new(dir.clone());
+        store.save(&sample_method()).unwrap();
+
+        // Must not error even though "does-not-exist" isn't a real lesson id.
+        store
+            .update_backing_track_lead_in_override("test-method", "does-not-exist", 3, 999.0)
+            .unwrap();
+
+        let reloaded = store.load_all().unwrap();
+        let loaded = reloaded.iter().find(|m| m.id == "test-method").unwrap();
+        let SectionItem::Lesson(lesson) = &loaded.items[0] else {
+            panic!("expected lesson at index 0");
+        };
+        assert_eq!(lesson.backing_groups[0].tracks[0].lead_in_ms_override, None);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

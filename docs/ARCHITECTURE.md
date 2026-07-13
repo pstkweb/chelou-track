@@ -172,7 +172,6 @@ de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
 **Fallbacks :**
 - Track sans BPM dans le nom → interpolation par durée (deux ancres : `leadInMs` → début,
   `duréeWav` → fin).
-- Tempo variable interne (non attendu) → `syncPoints` manuels.
 
 ## 8. Modèle de données
 
@@ -211,13 +210,11 @@ interface BackingGroup {
 interface BackingTrack {
   audio: FileRef;
   bpm: number;                    // parsé depuis "(NNNbpm)"
-  leadInMsOverride?: number;      // sinon dérivé de bpm + defaultCountInBars
-  syncPoints?: SyncPoint[];       // exception : tempo variable interne
+  leadInMsOverride?: number;      // détecté auto (silence de tête + count-in) ou réglé à la main
 }
 
 interface DocumentRef { file: FileRef; kind: 'pdf' | 'image'; title: string; }
 interface FileRef { fileId: number; name: string; }
-interface SyncPoint { audioMs: number; tick: number; }
 ```
 
 ## 9. Persistance
@@ -250,7 +247,7 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
 - Réordonner une leçon mal triée (le cas `épisode 0` vs `épisode 00` est indécidable depuis
   les noms seuls).
 - Ajuster `defaultCountInBars` d'une méthode si son count-in n'est pas d'une mesure.
-- Caler un track récalcitrant (override `leadInMs` ou `syncPoints`).
+- Caler un track récalcitrant (override manuel de `leadInMsOverride`).
 
 ## 13. À vérifier à l'implémentation
 

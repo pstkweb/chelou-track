@@ -47,6 +47,7 @@ pub fn run() {
             commands::mark_lesson_seen,
             commands::mark_lesson_unseen,
             commands::update_lesson_resume,
+            commands::update_backing_track_lead_in_override,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

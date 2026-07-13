@@ -120,7 +120,14 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   }, [screen, dispatchBreadcrumb, goToLibrary, goToMethod, openLesson]);
 
   const value = useMemo(
-    () => ({ screen, goToLibrary, goToMethod, openLesson, openTab, listDocuments }),
+    () => ({
+      screen,
+      goToLibrary,
+      goToMethod,
+      openLesson,
+      openTab,
+      listDocuments,
+    }),
     [screen, goToLibrary, goToMethod, openLesson, openTab, listDocuments],
   );
 

@@ -12,7 +12,6 @@ export default function useTimecodeResume(methodId: string, lessonId: string, de
     }
 
     if (pendingMsRef.current !== null) {
-      console.log(`Flushing timecode for lesson ${lessonId}: ${pendingMsRef.current}ms`);
       void updateLessonResume(methodId, lessonId, pendingMsRef.current);
       pendingMsRef.current = null;
     }

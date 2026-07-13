@@ -82,3 +82,17 @@ export async function updateLessonResume(
 ): Promise<void> {
   await invoke('update_lesson_resume', { methodId, lessonId, resumeMs });
 }
+
+/**
+ * Persist the final computed lead-in (ms) for a backing track into leadInMsOverride.
+ * Write-once by convention — callers should only invoke this when
+ * `track.leadInMsOverride` is not already set.
+ */
+export async function updateBackingTrackLeadInOverride(
+  methodId: string,
+  lessonId: string,
+  fileId: number,
+  leadInMs: number,
+): Promise<void> {
+  await invoke('update_backing_track_lead_in_override', { methodId, lessonId, fileId, leadInMs });
+}

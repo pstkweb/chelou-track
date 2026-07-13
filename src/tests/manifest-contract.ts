@@ -14,7 +14,6 @@ import type {
   Section,
   SectionFolder,
   SectionItem,
-  SyncPoint,
   TabSet,
 } from '@/types/model';
 
@@ -30,7 +29,7 @@ const SAMPLE_LESSON: Lesson = {
     {
       label: 'partie distorsion',
       tracks: [
-        // leadInMsOverride and syncPoints absent — same skip_serializing_if rule
+        // leadInMsOverride absent — skip_serializing_if rule
         {
           audio: { fileId: 3, name: 'Backing track partie distorsion (120bpm).wav' },
           bpm: 120,
@@ -67,9 +66,3 @@ export const SAMPLE_METHOD = {
   ] satisfies DocumentRef[],
   progress: {},
 } satisfies Method;
-
-// SyncPoint shape (used in leadInMsOverride override paths)
-export const SAMPLE_SYNC_POINT = {
-  audioMs: 1234.5,
-  tick: 3840,
-} satisfies SyncPoint;
