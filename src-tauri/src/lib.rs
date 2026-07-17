@@ -10,9 +10,20 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 pub fn run() {
+    #[cfg(target_os = "windows")]
     keyring_core::set_default_store(
         windows_native_keyring_store::Store::new()
             .expect("failed to init Windows credential store"),
+    );
+    #[cfg(target_os = "macos")]
+    keyring_core::set_default_store(
+        apple_native_keyring_store::keychain::Store::new()
+            .expect("failed to init macOS keychain store"),
+    );
+    #[cfg(target_os = "linux")]
+    keyring_core::set_default_store(
+        zbus_secret_service_keyring_store::Store::new()
+            .expect("failed to init Secret Service store"),
     );
 
     tauri::Builder::default()
