@@ -7,6 +7,9 @@ type BackingTrackPickerProps = {
   backingGroups: BackingGroup[];
   selectedGroup: BackingGroup | undefined;
   selectedTrack: BackingTrack | undefined;
+  // BPM du fichier de tablature — utilisé à la place du BPM du track quand celui-ci est à 0
+  // (certains backing tracks ne portent pas de tempo connu).
+  notatedBpm: number;
   onGroupSelect: (group: BackingGroup) => void;
   onTrackSelect: (track: BackingTrack) => void;
 };
@@ -15,6 +18,7 @@ export default function BackingTrackPicker({
   backingGroups,
   selectedGroup,
   selectedTrack,
+  notatedBpm,
   onGroupSelect,
   onTrackSelect,
 }: BackingTrackPickerProps) {
@@ -51,7 +55,7 @@ export default function BackingTrackPicker({
                 'border-transparent! bg-accent! text-accentink!',
             )}
           >
-            <b>{track.bpm}</b>
+            <b>{track.bpm || notatedBpm}</b>
             <span className="font-medium opacity-70">BPM</span>
           </Chip>
         ))}

@@ -48,10 +48,20 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
 
   const { openLesson } = useNavigation();
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
-  const { alphaTabRef, beatsPerBarRef, notatedBpmRef, scoreLoadedRef, trackBpmRef, leadInMsRef } =
-    useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId);
+  const {
+    alphaTabRef,
+    beatsPerBarRef,
+    notatedBpmRef,
+    notatedBpm,
+    scoreLoadedRef,
+    trackBpmRef,
+    leadInMsRef,
+  } = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId);
+  // Certains backing tracks ont un BPM à 0 (tempo inconnu côté source) : on retombe alors
+  // sur le tempo noté dans le fichier de tablature plutôt que de diviser par zéro partout.
+  const effectiveBpm = backingTrackSpeed?.bpm || notatedBpm;
   const { tick: tickMetronome, reset: resetMetronomeBeat } = useMetronome(
-    backingTrackSpeed?.bpm,
+    effectiveBpm,
     metro,
     mix.click / 100,
   );
@@ -61,6 +71,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     backingTrackSpeed,
     scoreLoadedRef,
     beatsPerBarRef,
+    notatedBpmRef,
   );
   const {
     countIn,
@@ -100,9 +111,9 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   // sur la tablature) en position audio réelle — seekTo vit dans le hook et n'a pas accès
   // à cet état de composant autrement.
   useEffect(() => {
-    trackBpmRef.current = backingTrackSpeed?.bpm;
+    trackBpmRef.current = effectiveBpm;
     leadInMsRef.current = effectiveLeadInMs;
-  }, [backingTrackSpeed, effectiveLeadInMs, trackBpmRef, leadInMsRef]);
+  }, [effectiveBpm, effectiveLeadInMs, trackBpmRef, leadInMsRef]);
 
   return (
     <div className="grain relative flex min-h-0 flex-1 flex-col">
@@ -197,6 +208,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               backingGroups={lesson.backingGroups}
               selectedGroup={backingTrack}
               selectedTrack={backingTrackSpeed}
+              notatedBpm={notatedBpm}
               onGroupSelect={setBackingTrack}
               onTrackSelect={(track) => {
                 resetPlayback();

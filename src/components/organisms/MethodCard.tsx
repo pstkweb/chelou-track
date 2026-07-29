@@ -1,4 +1,5 @@
-import { Guitar } from 'lucide-react';
+import { Guitar, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import Button from '@/components/atoms/Button';
 import { computeMethodColors } from '@/lib/colors';
 import { countBackingTracks, countLessons, countTabs, methodProgressPct } from '@/lib/method-view';
@@ -6,10 +7,12 @@ import type { Method } from '@/types/model';
 
 type MethodCardProps = {
   method: Method;
+  onDelete: (methodId: string) => void;
   onOpen: (m: Method) => void;
 };
 
-export default function MethodCard({ method, onOpen }: MethodCardProps) {
+export default function MethodCard({ method, onDelete, onOpen }: MethodCardProps) {
+  const [isConfirming, setIsConfirming] = useState(false);
   const started = Object.keys(method.progress).length > 0;
   const fmtPct = () => `${(methodProgressPct(method) * 100).toFixed()}%`;
   const [c1, c2] = computeMethodColors(method.title);
@@ -35,9 +38,33 @@ export default function MethodCard({ method, onOpen }: MethodCardProps) {
           <div className="absolute top-4 left-4 opacity-90">
             <Guitar size={30} />
           </div>
+          <button
+            type="button"
+            className="absolute top-2.5 right-2.5 flex size-7.5 cursor-pointer items-center justify-center rounded-full border-0 bg-white/30 text-white backdrop-blur-xs"
+            title="Supprimer cette méthode"
+            onClick={(e) => {
+              e.stopPropagation();
+
+              setIsConfirming(true);
+            }}
+          >
+            <Trash2 size={15} />
+          </button>
           <h3 className="display absolute right-4 bottom-3 left-4 m-0 text-xl [text-shadow:0_1px_10px_rgba(0,0,0,.35)]">
             {method.title}
           </h3>
+
+          {isConfirming && (
+            <div className='absolute inset-0 z-2 flex flex-col items-center justify-center gap-2.5 bg-[#14100e]/90 p-3.5 text-center' onClick={(e) => e.stopPropagation()} onKeyUp={() => {}}>
+              <div className='font-semibold text-sm'>Supprimer « {method.title} » ?</div>
+              <div className='flex gap-2'>
+                <Button variant="ghost" className='h-7.5 px-3 py-0 text-white text-xs'
+                  onClick={() => setIsConfirming(false)}>Annuler</Button>
+                <Button className='h-7.5 bg-[#e5484d] px-3 py-0 text-white text-xs'
+                  onClick={() => onDelete(method.id)}>Supprimer</Button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex flex-col gap-3 p-(--pad)">
           <div className="flex flex-wrap gap-4 text-fg3 text-xs">

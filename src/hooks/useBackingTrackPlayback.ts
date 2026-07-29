@@ -92,7 +92,8 @@ export default function useBackingTrackPlayback(
     }
 
     const countInDurationMs =
-      (method.defaultCountInBars * beatsPerBarRef.current * 60000) / (backingTrackSpeed?.bpm ?? 1);
+      (method.defaultCountInBars * beatsPerBarRef.current * 60000) /
+      (backingTrackSpeed?.bpm || notatedBpmRef.current);
     const countInStartMs = leadInMs - countInDurationMs;
     // Piloté par la position audio réelle (pas un setInterval séparé) : reste synchronisé
     // avec play/pause (ne tique pas tant que ce onTimeUpdate ne tourne pas) et avec un seek
@@ -112,7 +113,7 @@ export default function useBackingTrackPlayback(
       // Count-in en cours : affiche le temps courant (1-indexé), curseur figé sur la 1ère note.
       const totalBeats = method.defaultCountInBars * beatsPerBarRef.current;
       const beatsIntoCountIn = Math.floor(
-        ((audioMs - countInStartMs) / 60000) * (backingTrackSpeed?.bpm ?? 1),
+        ((audioMs - countInStartMs) / 60000) * (backingTrackSpeed?.bpm || notatedBpmRef.current),
       );
       setCountIn(Math.min(beatsIntoCountIn + 1, totalBeats));
       return;
@@ -126,7 +127,7 @@ export default function useBackingTrackPlayback(
     // correspondre au même nombre de temps si on les exprimait au tempo noté — d'où le
     // facteur trackBpm/notatedBpm. Vaut 1 quand le backing track est au tempo noté du .gp.
     setCountIn(undefined);
-    const scale = (backingTrackSpeed?.bpm ?? notatedBpmRef.current) / notatedBpmRef.current;
+    const scale = (backingTrackSpeed?.bpm || notatedBpmRef.current) / notatedBpmRef.current;
     output.updatePosition((audioMs - leadInMs) * scale);
   };
 

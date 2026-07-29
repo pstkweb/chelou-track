@@ -9,6 +9,7 @@ export default function useLeadInDetection(
   backingTrackSpeed: BackingTrack | undefined,
   scoreLoadedRef: RefObject<Promise<void>>,
   beatsPerBarRef: RefObject<number>,
+  notatedBpmRef: RefObject<number>,
 ) {
   const [detectedLeadInMs, setDetectedLeadInMs] = useState<number | undefined>(undefined);
 
@@ -34,8 +35,9 @@ export default function useLeadInDetection(
         if (cancelled || silenceMs === undefined) {
           return;
         }
+        const bpm = track.bpm || notatedBpmRef.current;
         const leadInMs =
-          silenceMs + (method.defaultCountInBars * beatsPerBarRef.current * 60000) / track.bpm;
+          silenceMs + (method.defaultCountInBars * beatsPerBarRef.current * 60000) / bpm;
         // Utilisable dès maintenant pour cette session (count-in, sync curseur) — la
         // persistance ci-dessous est fire-and-forget et ne fait pas revivre l'état local.
         setDetectedLeadInMs(leadInMs);
@@ -54,6 +56,7 @@ export default function useLeadInDetection(
     method.defaultCountInBars,
     lesson.id,
     beatsPerBarRef,
+    notatedBpmRef,
     scoreLoadedRef,
   ]);
 

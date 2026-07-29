@@ -1,474 +1,270 @@
 /* Chelou Track — classes de composants réutilisables */
+@reference "./globals.css";
 
 .display {
-  font-family: var(--font-display);
-  letter-spacing: var(--display-spacing);
-  font-weight: 700;
-  line-height: 1.06;
+  @apply font-display font-bold leading-[1.06] tracking-(--display-spacing);
 }
 
 .mono {
-  font-family: var(--font-mono);
+  @apply font-mono;
 }
 
 .app-window {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  overflow: hidden;
+  @apply relative flex h-full w-full flex-col overflow-hidden bg-bg;
 }
 
 .win-ctl {
-  display: flex;
-  gap: 2px;
-  -webkit-app-region: no-drag;
+  @apply flex gap-0.5 [-webkit-app-region:no-drag];
 }
 
 .win-ctl button {
-  width: 30px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background 0.12s var(--ease),
-    color 0.12s var(--ease);
+  @apply flex h-6 w-7.5 items-center justify-center rounded-sm border-0 bg-transparent p-0 text-fg3 transition-[background,color] duration-120 ease-(--ease);
 }
 
 .win-ctl button:hover {
-  background: var(--chip);
-  color: var(--text);
+  @apply bg-chip text-fg;
 }
 
 .win-ctl button:active {
-  background: var(--border);
+  @apply bg-border;
 }
 
 .win-ctl button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  @apply outline-2 outline-accent -outline-offset-2;
 }
 
 .win-ctl .close:hover {
-  background: #e5484d;
-  color: #fff;
+  @apply bg-[#e5484d] text-white;
 }
 
 .titlebar {
-  flex: 0 0 auto;
-  height: 38px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px;
-  position: relative;
-  z-index: 10;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--border);
-  -webkit-user-select: none;
-  user-select: none;
+  @apply relative z-10 flex h-9.5 flex-none select-none items-center gap-2.5 border-b border-border bg-bg2 px-3.5;
 }
 
 .tb-title {
-  font-size: 12px;
-  color: var(--text-3);
-  letter-spacing: 0.02em;
+  @apply text-xs tracking-[0.02em] text-fg3;
 }
 
 .tb-spacer {
-  flex: 1;
+  @apply flex-1;
 }
 
 .app-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  position: relative;
-  z-index: 1;
+  @apply relative z-1 flex min-h-0 flex-1;
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  position: relative;
+  @apply relative rounded-lg border border-border bg-surface;
 }
 
 .scroll {
-  overflow-y: auto;
-  overflow-x: hidden;
+  @apply overflow-y-auto overflow-x-hidden;
 }
 
 .pbar {
-  height: 6px;
-  border-radius: 99px;
-  background: var(--chip);
-  overflow: hidden;
+  @apply h-1.5 overflow-hidden rounded-full bg-chip;
 }
 
 .pbar > i {
-  display: block;
-  height: 100%;
-  border-radius: 99px;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  @apply block h-full rounded-full bg-[linear-gradient(90deg,var(--accent),var(--accent-2))];
 }
 
 .row-btn,
 .tree-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text);
-  text-align: left;
-  transition: background 0.12s var(--ease);
+  @apply flex w-full items-center gap-3 rounded-sm border border-transparent bg-transparent px-3 py-1.5 text-left text-fg transition-[background] duration-120 ease-(--ease);
 }
 
 .row-btn:hover,
 .tree-row:hover {
-  background: var(--chip);
+  @apply bg-chip;
 }
 
 .row-btn.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  @apply bg-mix-(--accent)/14 border-mix-(--accent)/35;
 }
 
 .tree-row {
-  min-height: var(--row-h);
-  position: relative;
+  @apply relative min-h-(--row-h);
 }
 
 .tree-row.active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  @apply bg-mix-(--accent)/14 border-mix-(--accent)/40;
 }
 
 .tree-row .t-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
+  @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium;
 }
 
 .tree-row.done .t-title {
-  color: var(--text-2);
+  @apply text-fg2;
 }
 
 .tree-row .t-meta {
-  font-size: 12px;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
+  @apply text-xs tabular-nums text-fg3;
 }
 
 .vp-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 30%, 372px);
-  gap: 20px;
-  align-items: start;
+  @apply grid items-start gap-5 grid-cols-[minmax(0,1fr)_clamp(300px,30%,372px)];
 }
 
 .vp-aside {
-  position: sticky;
-  top: 0;
+  @apply sticky top-0;
 }
 
 @media (max-width: 900px) {
   .vp-grid {
-    grid-template-columns: 1fr;
+    @apply grid-cols-[1fr];
   }
 
   .vp-aside {
-    position: static;
+    @apply static;
   }
 }
 
 .ex-card {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  transition:
-    border-color 0.15s var(--ease),
-    background 0.15s var(--ease);
+  @apply flex w-full cursor-pointer flex-col gap-3 p-3.5 text-left text-fg transition-[border-color,background] duration-150 ease-(--ease) bg-surface;
 }
 
 .ex-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  @apply border-[color-mix(in_srgb,var(--accent)_55%,var(--border))] bg-[color-mix(in_srgb,var(--accent)_6%,var(--surface))];
 }
 
 .ex-card .ex-arrow {
-  flex: 0 0 auto;
-  color: var(--text-3);
-  transition:
-    color 0.15s var(--ease),
-    transform 0.15s var(--ease);
+  @apply flex-none text-fg3 transition-[color,transform] duration-150 ease-(--ease);
 }
 
 .ex-card:hover .ex-arrow {
-  color: var(--accent);
-  transform: translateX(2px);
+  @apply translate-x-0.5 text-accent;
 }
 
 .sdot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex: 0 0 auto;
+  @apply size-2.25 flex-none rounded-full;
 }
 
 .sdot.done {
-  background: var(--done);
+  @apply bg-done;
 }
 
 .sdot.current {
-  background: var(--current);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--current) 25%, transparent);
+  @apply bg-(--current) shadow-[0_0_0_3px_color-mix(in_srgb,var(--current)_25%,transparent)];
 }
 
 .sdot.todo {
-  background: transparent;
-  border: 1.5px solid var(--border-2);
+  @apply border-[1.5px] border-border2 bg-transparent;
 }
 
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 99px;
-  background: var(--chip);
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid var(--border);
+  @apply inline-flex h-6.5 items-center gap-1.5 rounded-full border border-border bg-chip px-2.5 text-xs font-semibold text-fg2;
 }
 
 .badge-lvl {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 5px;
-  background: var(--chip);
-  color: var(--text-2);
+  @apply rounded-md bg-chip px-2 py-0.75 text-[10.5px] font-bold uppercase tracking-[0.04em] text-fg2;
 }
 
 .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: center;
-  height: 38px;
-  padding: 0 16px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-md);
-  background: var(--chip);
-  color: var(--text);
-  font-size: var(--fs);
-  font-weight: 600;
-  transition: all 0.15s var(--ease);
-  white-space: nowrap;
+  @apply inline-flex h-9.5 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border2 bg-chip px-4 text-(length:--fs) font-semibold text-fg transition-all duration-150 ease-(--ease);
 }
 
 .btn:hover {
-  border-color: var(--text-3);
+  @apply border-fg3;
 }
 
 .btn svg {
-  width: 17px;
-  height: 17px;
+  @apply size-4.25;
 }
 
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-contrast);
-  border-color: transparent;
-  box-shadow: 0 6px 18px -6px var(--accent);
+  @apply border-transparent bg-accent text-accentink shadow-[0_6px_18px_-6px_var(--accent)];
 }
 
 .btn-primary:hover {
-  filter: brightness(1.06);
-  border-color: transparent;
+  @apply border-transparent brightness-[1.06];
 }
 
 .btn-lg {
-  height: 46px;
-  padding: 0 22px;
-  font-size: var(--fs-lg);
+  @apply h-11.5 px-5.5 text-(length:--fs-lg);
 }
 
 .btn-ghost {
-  background: transparent;
-  border-color: transparent;
+  @apply border-transparent bg-transparent;
 }
 
 .btn-ghost:hover {
-  background: var(--chip);
-  border-color: transparent;
+  @apply border-transparent bg-chip;
 }
 
 .icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-2);
-  transition: all 0.15s var(--ease);
+  @apply inline-flex size-9.5 items-center justify-center rounded-sm border border-transparent bg-transparent text-fg2 transition-all duration-150 ease-(--ease);
 }
 
 .icon-btn:hover {
-  background: var(--chip);
-  color: var(--text);
+  @apply bg-chip text-fg;
 }
 
 .icon-btn svg {
-  width: 19px;
-  height: 19px;
+  @apply size-4.75;
 }
 
 .eyebrow {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-3);
+  @apply text-[11px] font-bold uppercase tracking-[0.14em] text-fg3;
 }
 
 input.search {
-  height: 38px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  padding: 0 12px 0 36px;
-  font: inherit;
-  width: 100%;
-  outline: none;
+  @apply h-9.5 w-full rounded-md border border-border bg-bg py-0 pr-3 pl-9 text-fg outline-none [font:inherit];
 }
 
 input.search:focus {
-  border-color: var(--accent);
+  @apply border-accent;
 }
 
 .type-ic {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-sm);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--chip);
-  color: var(--text-2);
+  @apply flex size-7.5 flex-none items-center justify-center rounded-sm bg-chip text-fg2;
 }
 
 .type-ic.tab {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  @apply bg-mix-(--accent)/14 text-accent;
 }
 
 .type-ic svg {
-  width: 16px;
-  height: 16px;
+  @apply h-4 w-4;
 }
 
 .section-title {
-  min-width: 0;
-  flex: 1;
-  font: inherit;
-  font-weight: 600;
-  color: var(--text-2);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  @apply min-w-0 flex-1 text-sm font-semibold uppercase tracking-wider text-fg2 [font:inherit];
 }
 
 .section-title--high-level {
-  font-family: var(--font-display);
-  font-size: var(--fs);
-  color: var(--text);
-  text-transform: none;
-  letter-spacing: normal;
+  @apply font-display text-(length:--fs) normal-case tracking-normal text-fg;
 }
 
 .card-lift {
-  transition:
-    transform 0.18s var(--ease),
-    border-color 0.18s var(--ease);
+  @apply transition-[transform,border-color] duration-180 ease-(--ease);
 }
 
 .card-lift:hover {
-  transform: translateY(-3px);
-  border-color: var(--border-2);
+  @apply -translate-y-0.75 border-border2;
 }
 
 .video-container:fullscreen,
 .video-container:-webkit-full-screen {
-  aspect-ratio: auto;
-  outline: none;
+  @apply aspect-auto outline-none;
 }
 .video-container:fullscreen video,
 .video-container:-webkit-full-screen video {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: auto;
-  border-radius: 0;
-  box-shadow: none;
+  @apply h-full w-full aspect-auto rounded-none shadow-none;
 }
 
 .toast-viewport {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
+  @apply pointer-events-none fixed bottom-5 right-5 z-100 flex flex-col gap-2;
 }
 
 .toast {
-  pointer-events: auto;
-  padding: 10px 16px;
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: var(--fs);
-  font-weight: 500;
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.35);
+  @apply pointer-events-auto rounded-md border border-border bg-surface px-4 py-2.5 text-(length:--fs) font-medium text-fg shadow-[0_8px_24px_-8px_rgba(0,0,0,0.35)];
   animation: toast-in 0.18s var(--ease);
 }
 
 .toast-error {
-  border-color: color-mix(in srgb, #e5484d 45%, var(--border));
+  @apply border-[color-mix(in_srgb,#e5484d_45%,var(--border))];
 }
 
 @keyframes toast-in {
@@ -486,15 +282,13 @@ input.search:focus {
    AlphaTab crée/positionne ces éléments lui-même mais ne fournit aucune couleur par
    défaut : sans ce CSS le curseur est fonctionnel (position correcte) mais invisible. */
 .at-cursor-bar {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  @apply bg-mix-(--accent)/15;
 }
 
 .at-cursor-beat {
-  background: var(--accent);
-  width: 3px;
+  @apply w-0.75 bg-accent;
 }
 
 .at-highlight * {
-  fill: var(--accent);
-  stroke: var(--accent);
+  @apply fill-accent stroke-accent;
 }

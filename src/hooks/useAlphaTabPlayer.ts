@@ -1,5 +1,5 @@
 import { AlphaTabApi, NotationElement, type synth } from '@coderline/alphatab';
-import { type RefObject, useEffect, useRef } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import { docUrl } from '@/lib/stream';
 
 function cssVar(name: string) {
@@ -26,6 +26,9 @@ export default function useAlphaTabPlayer(
   const alphaTabRef = useRef<AlphaTabApi>(null);
   const beatsPerBarRef = useRef(4);
   const notatedBpmRef = useRef(120);
+  // Copie réactive de notatedBpmRef, pour les usages côté rendu (affichage, arguments de
+  // hooks) — la ref seule ne déclenche pas de re-render quand le score se charge.
+  const [notatedBpm, setNotatedBpm] = useState(120);
   const scoreLoadedRef = useRef<Promise<void>>(new Promise(() => {}));
   // Renseignés par l'appelant (TabScreen) à chaque changement de backing track — lus par
   // seekTo() ci-dessous pour convertir un temps "noté" (domaine AlphaTab) en temps audio réel.
@@ -74,6 +77,7 @@ export default function useAlphaTabPlayer(
     instance.scoreLoaded.on((score) => {
       beatsPerBarRef.current = score.masterBars[0]?.timeSignatureNumerator ?? 4;
       notatedBpmRef.current = score.tempo || 120;
+      setNotatedBpm(score.tempo || 120);
       resolveScoreLoaded();
     });
 
@@ -149,5 +153,13 @@ export default function useAlphaTabPlayer(
     };
   }, [tabFile]);
 
-  return { alphaTabRef, beatsPerBarRef, notatedBpmRef, scoreLoadedRef, trackBpmRef, leadInMsRef };
+  return {
+    alphaTabRef,
+    beatsPerBarRef,
+    notatedBpmRef,
+    notatedBpm,
+    scoreLoadedRef,
+    trackBpmRef,
+    leadInMsRef,
+  };
 }
