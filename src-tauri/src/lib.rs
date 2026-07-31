@@ -27,6 +27,8 @@ pub fn run() {
     );
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .register_asynchronous_uri_scheme_protocol("stream", |app, request, responder| {
             stream::handle(app, request, responder);
