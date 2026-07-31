@@ -8,12 +8,19 @@ import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { LibraryProvider } from '@/contexts/LibraryContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
 import { ToastProvider } from '@/contexts/ToastContext';
+import useAppUpdater from '@/hooks/useAppUpdater';
 import useSystemTheme from '@/hooks/useSystemTheme';
 import { getAuthStatus, listMethods, markLessonSeen } from '@/lib/ipc';
 import DocumentsScreen from '../templates/DocumentsScreen';
 import TabScreen from '../templates/TabScreen';
 
 type AppState = 'loading' | 'no-auth' | 'no-methods' | 'ready';
+
+function UpdateChecker() {
+  useAppUpdater();
+
+  return null;
+}
 
 function AuthenticatedView() {
   const { screen } = useNavigation();
@@ -75,30 +82,31 @@ export default function App() {
     });
   }, []);
 
-  if (state === 'loading') return null;
-
   return (
     <div className="app-window">
-      <LibraryProvider>
-        <ToastProvider>
-          <BreadcrumbProvider>
-            <TitleBar connected={['no-methods', 'ready'].includes(state)} />
+      <ToastProvider>
+        <UpdateChecker />
+        <BreadcrumbProvider>
+          {state !== 'loading' && (
+            <LibraryProvider>
+              <TitleBar connected={['no-methods', 'ready'].includes(state)} />
 
-            <div className="app-body">
-              {state === 'ready' ? (
-                <NavigationProvider>
-                  <AuthenticatedView />
-                </NavigationProvider>
-              ) : (
-                <ConnectScreen
-                  startAtFolder={state === 'no-methods'}
-                  onConnected={() => setState('ready')}
-                />
-              )}
-            </div>
-          </BreadcrumbProvider>
-        </ToastProvider>
-      </LibraryProvider>
+              <div className="app-body">
+                {state === 'ready' ? (
+                  <NavigationProvider>
+                    <AuthenticatedView />
+                  </NavigationProvider>
+                ) : (
+                  <ConnectScreen
+                    startAtFolder={state === 'no-methods'}
+                    onConnected={() => setState('ready')}
+                  />
+                )}
+              </div>
+            </LibraryProvider>
+          )}
+        </BreadcrumbProvider>
+      </ToastProvider>
     </div>
   );
 }

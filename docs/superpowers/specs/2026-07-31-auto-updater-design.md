@@ -74,6 +74,12 @@ Ajouter un bloc `plugins.updater` :
 La clé publique doit être copiée depuis le fichier `.key.pub` généré localement par
 l'utilisateur (pas de secret — c'est la clé publique, sûre à committer).
 
+Ajouter aussi `"createUpdaterArtifacts": true` dans le bloc `bundle` (à côté de
+`active`/`targets`). Sans ce flag, `tauri build` ne génère ni les archives updater
+ni leurs `.sig`, même avec les clés de signature présentes en env — `tauri-action`
+log alors `Signature not found for the updater JSON. Skipping upload...` et
+n'assemble pas `latest.json`.
+
 ### 3. Rust
 
 - Ajouter la dépendance `tauri-plugin-process` (crate) dans `src-tauri/Cargo.toml`,

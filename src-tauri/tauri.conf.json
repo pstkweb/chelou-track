@@ -9,6 +9,14 @@
     "beforeBuildCommand": "vite build",
     "frontendDist": "../dist"
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzRDY5MzFFMDFBMzFEMTcKUldRWEhhTUJIcFBXRXdkdnNKdDZrWHlvdmcvdEpjR3BjdVc3c1BDakdOc3FRc1RySjZxVkpDcFkK",
+      "endpoints": [
+        "https://github.com/pstkweb/chelou-track/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "app": {
     "windows": [
       {
@@ -26,6 +34,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
