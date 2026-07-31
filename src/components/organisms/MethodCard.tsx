@@ -7,8 +7,8 @@ import type { Method } from '@/types/model';
 
 type MethodCardProps = {
   method: Method;
-  onDelete: (methodId: string) => void;
-  onOpen: (m: Method) => void;
+  onDelete: (method: Method) => void;
+  onOpen: (method: Method) => void;
 };
 
 export default function MethodCard({ method, onDelete, onOpen }: MethodCardProps) {
@@ -55,13 +55,26 @@ export default function MethodCard({ method, onDelete, onOpen }: MethodCardProps
           </h3>
 
           {isConfirming && (
-            <div className='absolute inset-0 z-2 flex flex-col items-center justify-center gap-2.5 bg-[#14100e]/90 p-3.5 text-center' onClick={(e) => e.stopPropagation()} onKeyUp={() => {}}>
-              <div className='font-semibold text-sm'>Supprimer « {method.title} » ?</div>
-              <div className='flex gap-2'>
-                <Button variant="ghost" className='h-7.5 px-3 py-0 text-white text-xs'
-                  onClick={() => setIsConfirming(false)}>Annuler</Button>
-                <Button className='h-7.5 bg-[#e5484d] px-3 py-0 text-white text-xs'
-                  onClick={() => onDelete(method.id)}>Supprimer</Button>
+            <div
+              className="absolute inset-0 z-2 flex flex-col items-center justify-center gap-2.5 bg-[#14100e]/90 p-3.5 text-center"
+              onClick={(e) => e.stopPropagation()}
+              onKeyUp={() => {}}
+            >
+              <div className="font-semibold text-sm">Supprimer « {method.title} » ?</div>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  className="h-7.5 px-3 py-0 text-white text-xs"
+                  onClick={() => setIsConfirming(false)}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  className="h-7.5 bg-[#e5484d] px-3 py-0 text-white text-xs"
+                  onClick={() => onDelete(method)}
+                >
+                  Supprimer
+                </Button>
               </div>
             </div>
           )}

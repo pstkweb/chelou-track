@@ -13,12 +13,16 @@ import type { Method } from '@/types/model';
 type Crumb = { id: number; name: string };
 
 type FolderPickerProps = {
+  title?: string;
   onConnected: () => void;
 };
 
 type State = 'browse' | 'scan' | 'review';
 
-export default function FolderPicker({ onConnected }: FolderPickerProps) {
+export default function FolderPicker({
+  title = 'Où sont tes méthodes ?',
+  onConnected,
+}: FolderPickerProps) {
   const [state, setState] = useState<State>('browse');
   const [path, setPath] = useState<string>('/');
   // crumbs[0] is always root. The current folder is the last crumb.
@@ -101,7 +105,7 @@ export default function FolderPicker({ onConnected }: FolderPickerProps) {
   return (
     <div className="card w-[min(440px,100%)] animate-[fadeUp_.35s_var(--ease)] p-7">
       <div className="eyebrow mb-1.5">Étape 2 / 3 · pCloud connecté</div>
-      <h2 className="display m-0 mb-1 text-2xl">Où sont tes méthodes ?</h2>
+      <h2 className="display m-0 mb-1 text-2xl">{title}</h2>
       <p className="m-0 mb-4 text-fg2 text-xs leading-normal">
         Choisis un dossier : on en analysera le contenu pour y repérer les méthodes.
       </p>

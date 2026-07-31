@@ -40,7 +40,7 @@ npx tsc --noEmit
 - **Tauri v2** (Rust backend + WebView2 sur Windows), frontend TypeScript + Vite.
 - **AlphaTab** (`@coderline/alphatab@1.8.3`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
-- **Web Audio API** (`AudioContext` / `AudioBufferSourceNode`) — pas `<audio>` — pour la précision de synchro.
+- **Balise `<audio>`** pointée sur `stream://audio/{id}` pour la lecture des backing tracks (streaming progressif, `playbackRate` natif). **Web Audio API** (`AudioContext` / `decodeAudioData`) réservée à un usage ponctuel : l'analyse du silence de tête d'un track, pas la lecture.
 - **reqwest** côté Rust pour les appels pCloud + streaming Range.
 - **keyring** pour le token pCloud (Windows Credential Manager).
 
@@ -92,10 +92,14 @@ Ce découpage permet de tester le modèle et la persistance sans compiler Tauri 
 | `types/model.ts` | Interfaces du modèle (§8 ARCHITECTURE.md) — source de vérité TS |
 | `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust |
 | `lib/stream.ts` | Constructeurs d'URL `stream://video/{id}`, `stream://audio/{id}`, etc. |
-| `components/player/VideoPlayer.ts` | `<video>` + fallback transcodé automatique sur erreur de décodage |
-| `components/player/SyncView.ts` | Sync audio↔AlphaTab (voir ci-dessous) |
-| `components/catalogue/Catalogue.ts` | Navigation méthode→leçons, tri par `.order` |
-| `components/documents/DocViewer.ts` | PDF.js + `<img>` pour les images |
+| `lib/silence-detection.ts` | Détection du silence de tête d'un backing track (`decodeAudioData` + analyse d'amplitude) |
+| `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |
+| `components/templates/TabScreen.tsx` | Vue synchro : `<audio>` + AlphaTab (boucle de synchro, voir ci-dessous) |
+| `hooks/useAlphaTabPlayer.ts` | Instancie AlphaTab, branche `<audio>` comme `IExternalMediaHandler` |
+| `hooks/useBackingTrackPlayback.ts` | Boucle de synchro : lit `audio.currentTime`, pousse la position à AlphaTab |
+| `hooks/useLeadInDetection.ts` | Déclenche la détection de silence de tête, persiste `leadInMsOverride` |
+| `components/templates/MethodScreen.tsx`, `LibraryScreen.tsx` | Navigation méthode→leçons, tri par `.order` |
+| `components/templates/DocumentsScreen.tsx` | PDF.js + `<img>` pour les images |
 
 ### CSS — classe custom vs utilitaires Tailwind
 
@@ -111,22 +115,27 @@ JSX, y compris pour les valeurs hors échelle (`text-[clamp(20px,3vw,44px)]`, `b
 restent lisibles sans devoir ouvrir un autre fichier. Passer par `cn()` (`clsx` + `tailwind-merge`)
 dès qu'un composant a un `className` conditionnel ou surchargeable depuis l'extérieur.
 
-### Boucle de synchronisation (SyncView)
+### Boucle de synchronisation (TabScreen)
 
 Modèle : **audio = horloge maître, AlphaTab = esclave**. Ne jamais faire « jouer » AlphaTab.
+`audio.currentTime` (balise `<audio>`, pas `AudioContext`) est l'unique source de vérité, relue
+sur `timeupdate`/`seeked` et, pendant la lecture, via un `setInterval` de 50 ms (`useBackingTrackPlayback.ts`) :
 
 ```
-AudioBufferSourceNode.start()
-  └─ rAF loop :
-       audioMs      = (audioCtx.currentTime - t0) * 1000
-       beatsElapsed = max(0, (audioMs - leadInMs) / 60000 * trackBpm)
-       tick         = beatsElapsed * 960          // 960 ticks/noire (constante AlphaTab)
-       api.tickPosition = tick                    // pousse le curseur, bypass BPM du .gp
+audioMs = audio.currentTime * 1000
+scale   = trackBpm / notatedBpm            // = 1 si le backing track est au tempo noté du .gp
+output.updatePosition((audioMs - leadInMs) * scale)
 ```
 
-`api.tickPosition` (pas `output.updatePosition(ms)`) : on calcule les ticks depuis le BPM du backing track, pas depuis le tempo du score. C'est la seule façon de rester synchronisé pour les versions lentes.
+`updatePosition(ms)` fait convertir en interne par AlphaTab ce temps en tick selon le tempo
+**noté** du `.gp` — d'où la mise à l'échelle par `scale`, qui réexprime le temps écoulé au tempo
+du backing track comme s'il s'était écoulé au tempo noté. Reste correct tant que le tempo est
+constant sur tout le fichier (hypothèse posée dans ARCHITECTURE.md §7).
 
-`leadInMs = defaultCountInBars × beatsPerBar × 60000 / trackBpm` — `beatsPerBar` lu depuis `api.score.masterBars[0].timeSignatureNumerator` après `scoreLoaded`.
+`leadInMs = silenceMs + defaultCountInBars × beatsPerBar × 60000 / trackBpm` — `silenceMs` détecté
+une fois par track (`lib/silence-detection.ts`) et mis en cache dans `leadInMsOverride` ;
+`beatsPerBar` lu depuis `api.score.masterBars[0].timeSignatureNumerator` après `scoreLoaded`.
+Détail complet : ARCHITECTURE.md §7.
 
 ## Tests
 
@@ -211,5 +220,4 @@ pub fn handle<R: Runtime>(
 ## Conventions
 
 - `crates/manifest/src/lib.rs` (Rust) et `types/model.ts` (TS) doivent rester en miroir (serde `rename` pour camelCase). `src/manifest/mod.rs` est un stub `pub use chelou_manifest::*` — ne pas y écrire de logique.
-- `AudioBufferSourceNode` ne peut pas être restarted : le recréer depuis zéro pour chaque `seekTo`.
 - Token pCloud : jamais en clair sur disque, toujours via `keyring::Entry`.

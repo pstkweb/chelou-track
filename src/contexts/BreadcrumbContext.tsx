@@ -5,21 +5,10 @@ export type BreadcrumbItem = {
   onClick?: () => void;
 };
 
-type AddItemAction = {
-  type: 'add';
-  payload: BreadcrumbItem;
-};
-
-type ClearAction = {
-  type: 'clear';
-};
-
-type ReplaceAction = {
-  type: 'replace';
-  payload: BreadcrumbItem[];
-};
-
-type BreadcrumbAction = AddItemAction | ClearAction | ReplaceAction;
+type BreadcrumbAction =
+  | { type: 'add'; payload: BreadcrumbItem }
+  | { type: 'clear' }
+  | { type: 'replace'; payload: BreadcrumbItem[] };
 
 interface BreadcrumbContextValue {
   items: BreadcrumbItem[];

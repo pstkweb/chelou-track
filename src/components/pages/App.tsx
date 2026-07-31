@@ -5,6 +5,7 @@ import LessonScreen from '@/components/templates/LessonScreen';
 import LibraryScreen from '@/components/templates/LibraryScreen';
 import MethodScreen from '@/components/templates/MethodScreen';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
+import { LibraryProvider } from '@/contexts/LibraryContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import useSystemTheme from '@/hooks/useSystemTheme';
@@ -78,24 +79,26 @@ export default function App() {
 
   return (
     <div className="app-window">
-      <ToastProvider>
-        <BreadcrumbProvider>
-          <TitleBar connected={['no-methods', 'ready'].includes(state)} />
+      <LibraryProvider>
+        <ToastProvider>
+          <BreadcrumbProvider>
+            <TitleBar connected={['no-methods', 'ready'].includes(state)} />
 
-          <div className="app-body">
-            {state === 'ready' ? (
-              <NavigationProvider>
-                <AuthenticatedView />
-              </NavigationProvider>
-            ) : (
-              <ConnectScreen
-                startAtFolder={state === 'no-methods'}
-                onConnected={() => setState('ready')}
-              />
-            )}
-          </div>
-        </BreadcrumbProvider>
-      </ToastProvider>
+            <div className="app-body">
+              {state === 'ready' ? (
+                <NavigationProvider>
+                  <AuthenticatedView />
+                </NavigationProvider>
+              ) : (
+                <ConnectScreen
+                  startAtFolder={state === 'no-methods'}
+                  onConnected={() => setState('ready')}
+                />
+              )}
+            </div>
+          </BreadcrumbProvider>
+        </ToastProvider>
+      </LibraryProvider>
     </div>
   );
 }

@@ -20,8 +20,12 @@ correspondante. Objectif transverse : **lecture en streaming sans téléchargeme
   afficher *et* faire défiler un curseur sur des fichiers GuitarPro. Gère `.gp3/.gp4/.gp5`,
   `.gpx` (GP6) et `.gp` (GP7+).
 - **PDF : PDF.js** (uniquement pour la section « documents », voir §10).
-- **Audio : Web Audio API** (`AudioContext`, `decodeAudioData`) — pas la balise `<audio>`,
-  pour la précision de synchro.
+- **Audio : balise `<audio>`** pointée sur `stream://audio/{fileId}` — streaming progressif
+  (mêmes Range requests que la vidéo, cohérent avec l'objectif « pas de téléchargement », §1),
+  `playbackRate` natif avec préservation du pitch pour les variantes de tempo.
+  `AudioContext`/`decodeAudioData` réservé à un usage ponctuel et séparé : l'analyse en tâche de
+  fond du silence de tête d'un track (§7), qui a besoin d'un buffer décodé mais pas de lecture
+  temps réel.
 
 Electron a été explicitement écarté.
 
@@ -62,8 +66,11 @@ bitrate/résolution réduits) au lieu de `getfilelink`. Côté `stream://`, c'es
 paramètre supplémentaire. Coût nul si jamais déclenché. **Ne pas** sonder les codecs à
 l'import : on laisse échouer puis on rattrape.
 
-Le `.wav` : chargé **en RAM** via `decodeAudioData` (≈30 Mo pour 3 min stéréo, négligeable),
-pas streamé via `<audio>`, pour la précision de synchro. Le `.gp`/`.gpx` est minuscule,
+Le `.wav` : streamé via `<audio src="stream://audio/{fileId}">`, même mécanisme Range que la
+vidéo — lecture immédiate sans attendre le téléchargement complet. Seule exception : la
+détection du silence de tête (§7) télécharge le fichier en entier et le décode via
+`decodeAudioData` — coût accepté car ponctuel (une fois par track, résultat mis en cache dans
+`leadInMsOverride`), sans rapport avec la lecture elle-même. Le `.gp`/`.gpx` est minuscule,
 chargé en `ArrayBuffer`.
 
 ## 5. Frontière Rust / TS
@@ -81,7 +88,7 @@ Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
 **TS (frontend) :**
 - Navigation catalogue (méthode → leçons dans l'ordre).
 - Lecteur vidéo (`<video>` pointant sur `stream://`).
-- Vue synchro (AlphaTab + Web Audio + boucle de synchro, §7).
+- Vue synchro (AlphaTab + `<audio>` + boucle de synchro, §7).
 - Viewer documents (PDF.js + viewer image, §10).
 - **Aucun secret, aucun appel réseau direct vers pCloud** : uniquement des `invoke()` vers Rust.
 
@@ -134,44 +141,65 @@ est un vrai document → viewer (§10).
 jamais à AlphaTab de « jouer ». On lit la position du `.wav` et on la pousse à AlphaTab.
 
 Caractéristiques des backing tracks (confirmées) : **tempo constant** par fichier (plusieurs
-versions à des BPM différents pour l'apprentissage), **count-in quasi systématique d'une mesure**.
+versions à des BPM différents pour l'apprentissage), **count-in quasi systématique d'une mesure**,
+**silence de tête de durée variable** avant le count-in (l'hypothèse initiale d'un count-in
+démarrant à `audioMs = 0` ne tenait pas en pratique).
 
 **`leadInMs` dérivé automatiquement** (zéro réglage manuel dans le cas nominal) :
 
 ```
-leadInMs = countInBars × beatsPerBar × 60000 / trackBpm
+leadInMs = silenceMs + countInBars × beatsPerBar × 60000 / trackBpm
 ```
 
-- `trackBpm` vient du nom de fichier.
+- `silenceMs` = fin du silence de tête, détectée une seule fois par track par une analyse
+  d'amplitude (`src/lib/silence-detection.ts` — seuil sur le pic par fenêtre de 20 ms, calibré
+  sur un percentile bas des premières fenêtres). Nécessite un buffer décodé
+  (`AudioContext.decodeAudioData` sur un téléchargement complet séparé, cf. §4) — seul endroit du
+  code qui décode un backing track entier ; la lecture elle-même ne s'en sert pas. Résultat mis
+  en cache dans `leadInMsOverride` (persistance Rust), jamais recalculé une fois posé.
+- `trackBpm` vient du nom de fichier ; absent/à `0` → repli sur le tempo noté du `.gp`
+  (`notatedBpm`) plutôt que de diviser par zéro.
 - `beatsPerBar` vient de la signature rythmique fournie par AlphaTab.
 - `countInBars` = réglage **par méthode** (`defaultCountInBars`, défaut `1`). Presque toujours
   constant à l'échelle d'une méthode → si une méthode a un count-in de 2 mesures, on change
   *un* nombre une fois. Override par track seulement pour les rares exceptions.
+- `leadInMsOverride` réglé manuellement garde toujours la priorité sur la détection auto.
 
-**Boucle de synchro (TS), pilotée en beats absolus** (plus robuste que l'interpolation par
-durée, qui dépend des silences de fin du wav) :
+**Boucle de synchro (TS), pilotée depuis la balise `<audio>`** — pas de `requestAnimationFrame`
+ni d'`AudioContext` : `audio.currentTime` est la seule source de vérité, relue à chaque évènement
+`timeupdate`/`seeked` du `<audio>` et, pendant la lecture, par un `setInterval` de 50 ms (filet de
+sécurité, la fréquence native de `timeupdate` n'étant garantie par aucune spec) :
 
 ```
-// au démarrage : t0 = audioCtx.currentTime, lancement de l'AudioBufferSourceNode
-// dans une boucle requestAnimationFrame :
-audioMs      = (audioCtx.currentTime - t0) * 1000
-beatsEcoules = max(0, (audioMs - leadInMs) / 60000 * trackBpm)
-tick         = beatsEcoules * ticksParNoire        // 4/4
-// -> positionner le curseur AlphaTab à ce tick
+audioMs = audio.currentTime * 1000
+
+// audioMs < silenceMs         : silence de tête, rien à afficher
+// silenceMs ≤ audioMs < leadInMs : count-in, overlay avec le numéro du temps
+// audioMs ≥ leadInMs          : morceau démarré, curseur poussé à AlphaTab
+
+scale = trackBpm / notatedBpm      // = 1 si le backing track est au tempo noté du .gp
+output.updatePosition((audioMs - leadInMs) * scale)
 ```
 
-Pendant le count-in (`audioMs < leadInMs`), `beatsEcoules` clampé à 0 : curseur masqué ou figé
-sur la première note. **Le tempo noté du `.gp` n'intervient pas** : la version lente n'est
-qu'un `trackBpm` plus petit ⇒ curseur plus lent ⇒ chaque mesure atteinte pile au bon instant audio.
+`updatePosition(ms)` fait convertir en interne par AlphaTab ce temps en position selon le tempo
+**noté** du `.gp` — d'où la mise à l'échelle par `scale` : un temps écoulé au tempo du backing
+track doit être réexprimé comme s'il s'était écoulé au tempo noté pour tomber sur le bon tick.
+Reste correct tant que le tempo est constant sur tout le fichier (hypothèse posée plus haut —
+pas de tempo variable interne, cf. `syncPoints` abandonné en faveur de cette approche plus
+simple).
 
-**Branchement AlphaTab :** mode média externe (`PlayerMode.EnabledExternalMedia` + implémentation
-de `IExternalMediaHandler` à qui on pousse la position). **⚠️ Les signatures exactes d'AlphaTab
+**Branchement AlphaTab :** mode média externe (`PlayerMode.EnabledExternalMedia`), la balise
+`<audio>` branchée comme `IExternalMediaHandler` — `play`/`pause`/`volume`/`playbackRate`
+délégués directement à l'élément DOM. `seekTo(time)` applique la transformation inverse :
+`audio.currentTime = (time / scale + leadInMs) / 1000`. **⚠️ Les signatures exactes d'AlphaTab
 ont changé selon les versions — vérifier l'API contre la version réellement installée plutôt que
 de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
 
 **Fallbacks :**
-- Track sans BPM dans le nom → interpolation par durée (deux ancres : `leadInMs` → début,
-  `duréeWav` → fin).
+- Track sans BPM dans le nom → repli sur le tempo noté du `.gp`, pas d'interpolation par durée.
+- Détection du silence de tête en échec ou pas encore terminée (track jamais joué avant) →
+  `leadInMs` traité comme non défini pour la session ; pas de count-in affiché tant que la
+  détection (fire-and-forget) n'a pas abouti.
 
 ## 8. Modèle de données
 
@@ -286,7 +314,11 @@ Tout nouveau module avec de la logique non-triviale devrait idéalement rejoindr
 - Electron.
 - Appli purement navigateur (impossible, cf. §3).
 - Appariement tab ↔ backing track par similarité de nom.
-- Détection d'onset/silence sur le wav pour trouver le count-in (peu fiable ; le calcul dérivé
-  du BPM est plus sûr). Gardé en réserve théorique uniquement.
 - Affichage du PDF dans la vue synchro.
+- Lecture du backing track via Web Audio API pure (`AudioContext` + `AudioBufferSourceNode` +
+  `decodeAudioData`, boucle `requestAnimationFrame`, `tickPosition`). Remplacé par une balise
+  `<audio>` en streaming (§2, §7) : l'argument initial de précision ne s'est pas vérifié
+  nécessaire (`audio.currentTime` suffit), et exiger un téléchargement complet avant lecture
+  contredit l'objectif §1 « streaming sans téléchargement ». `decodeAudioData` reste utilisé,
+  mais seulement pour l'analyse ponctuelle du silence de tête (§7), pas pour la lecture.
 - Mocks de Tauri dans les tests : on extrait la logique dans un sous-crate à la place (cf. §15).

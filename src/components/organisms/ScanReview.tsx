@@ -1,9 +1,9 @@
-import { Check, ChevronLeft, Download, Music } from 'lucide-react';
+import { Check, ChevronLeft, Download, Minus, Music } from 'lucide-react';
 import { useState } from 'react';
 import Button from '@/components/atoms/Button';
+import { useLibrary } from '@/contexts/LibraryContext';
 import cn from '@/lib/cn';
 import { computeMethodColors } from '@/lib/colors';
-import { saveMethod } from '@/lib/ipc';
 import { countLessons, countTabs } from '@/lib/method-view';
 import type { Method } from '@/types/model';
 
@@ -14,6 +14,7 @@ type ScanReviewProps = {
 };
 
 export default function ScanReview({ foundMethods, onImport, onBack }: ScanReviewProps) {
+  const { methods, add } = useLibrary();
   const [excluded, setExcluded] = useState(() => new Set<string>());
   const toggle = (id: string) =>
     setExcluded((prev) => {
@@ -21,13 +22,14 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  const isAlreadyInLibrary = (method: Method) => methods.map((m) => m.title).includes(method.title);
 
-  const kept = foundMethods.filter((m) => !excluded.has(m.id));
+  const kept = foundMethods.filter((m) => !excluded.has(m.id) && !isAlreadyInLibrary(m));
   const totVideos = kept.reduce((s, m) => s + countLessons(m.items), 0);
 
   const handleImport = async () => {
     for (const method of kept) {
-      await saveMethod(method);
+      await add(method);
     }
 
     onImport();
@@ -49,8 +51,36 @@ export default function ScanReview({ foundMethods, onImport, onBack }: ScanRevie
 
       <div className="relative mb-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-bg3 p-1.5">
         {foundMethods.map((m) => {
-          const on = !excluded.has(m.id);
           const [color] = computeMethodColors(m.title);
+
+          if (isAlreadyInLibrary(m)) {
+            return (
+              <div key={m.id} className="row-btn min-h-14 opacity-50">
+                <span
+                  aria-hidden
+                  className="flex size-5 flex-initial items-center justify-center rounded border-2 border-border2 bg-transparent text-accentink transition-all"
+                >
+                  <Minus size={13} />
+                </span>
+                <span
+                  className="flex size-9 flex-initial items-center justify-center rounded-sm text-white"
+                  style={{ backgroundColor: color }}
+                >
+                  <Music size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-0.5 min-w-0 flex-1 overflow-hidden text-ellipsis text-nowrap font-medium text-sm">
+                    {m.title}
+                  </div>
+                  <div className="tabular-enums text-fg3 text-xs">
+                    Cette méthode est déjà dans ta bibliothèque
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const on = !excluded.has(m.id);
 
           return (
             <button

@@ -42,7 +42,6 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
 
   return (
     <div className="relative flex flex-1 overflow-hidden">
-      {/* panneau gauche — marque */}
       <div
         className="to[var(--bg-2)] relative flex shrink grow basis-[46%] flex-col justify-between border-r border-r-border border-solid bg-linear-[150deg] from-(--gradient-from) p-[clamp(32px,5vw,64px)]"
         style={
@@ -70,7 +69,6 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
         </div>
       </div>
 
-      {/* panneau droit */}
       <div className="flex shrink grow basis-[54%] items-center justify-center p-8">
         {phase !== 'folder' ? (
           <div className="card w-[min(400px,100%)] p-8">
