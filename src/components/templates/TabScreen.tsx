@@ -56,7 +56,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     scoreLoadedRef,
     trackBpmRef,
     leadInMsRef,
-  } = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId);
+  } = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId, method.source.provider);
   // Certains backing tracks ont un BPM à 0 (tempo inconnu côté source) : on retombe alors
   // sur le tempo noté dans le fichier de tablature plutôt que de diviser par zéro partout.
   const effectiveBpm = backingTrackSpeed?.bpm || notatedBpm;
@@ -168,7 +168,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
           {backingTrackSpeed && (
             <audio
               className="hidden"
-              src={audioUrl(backingTrackSpeed.audio.fileId)}
+              src={audioUrl(method.source.provider, backingTrackSpeed.audio.fileId)}
               ref={audioElmt}
               onTimeUpdate={onTimeUpdate}
               onSeeked={onTimeUpdate}

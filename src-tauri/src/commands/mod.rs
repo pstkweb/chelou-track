@@ -1,8 +1,13 @@
 // Tauri commands — the only surface the frontend can call via invoke().
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
+use anyhow::{anyhow, Result};
+use chelou_providers::oauth::{bind_loopback, wait_for_token};
+use chelou_providers::{
+    FolderContents, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, State};
 
 // Client credentials baked at compile time.
@@ -29,14 +34,18 @@ const PCLOUD_CLIENT_SECRET: &str = match option_env!("PCLOUD_CLIENT_SECRET") {
 
 use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
-use crate::pcloud::PCloudClient;
+use crate::providers::{make_auth, make_client};
+
+type UrlCacheKey = (ProviderId, String, bool);
+type UrlCacheEntry = (String, Instant);
 
 pub struct AppState {
     pub auth: Mutex<AuthStore>,
     pub manifest: ManifestStore,
+    pub http: reqwest::Client,
     /// Cache of pCloud download URLs: (file_id, is_video_link) → (url, fetched_at).
     /// Avoids one getfilelink API round-trip per Range chunk during media playback.
-    pub url_cache: Mutex<HashMap<(u64, bool), (String, Instant)>>,
+    pub url_cache: Mutex<HashMap<UrlCacheKey, UrlCacheEntry>>,
 }
 
 // --- Auth ---
@@ -45,32 +54,40 @@ pub struct AppState {
 /// Opens the system browser with the pCloud authorization page, then waits in the
 /// background for the callback. On success emits `oauth:complete`; on error `oauth:error`.
 #[tauri::command]
-pub async fn pcloud_oauth_start(app: tauri::AppHandle) -> Result<(), String> {
-    let (auth_url, listener) = crate::auth::oauth::start_loopback_server(PCLOUD_CLIENT_ID)
-        .await
-        .map_err(|e| e.to_string())?;
+pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<(), String> {
+    let session = bind_loopback().await.map_err(|e| e.to_string())?;
+    let auth_url = make_auth(provider).authorize_url(PCLOUD_CLIENT_ID, &session.redirect_uri);
 
     open::that(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
 
     // Block until the user completes auth in the browser or the 5-minute timeout elapses.
-    let token =
-        crate::auth::oauth::wait_for_token(listener, PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET)
-            .await
-            .map_err(|e| e.to_string())?;
+    let redirect_uri = session.redirect_uri.clone();
+    let token = wait_for_token(session).await.map_err(|e| e.to_string());
 
-    {
-        let state = app.state::<AppState>();
-        let r = state.auth.lock().unwrap().save_token(token);
-        r
-    }
-    .map_err(|e| e.to_string())?;
+    let credentials = make_auth(provider)
+        .exchange_code(
+            token.as_ref().map_err(|e| e.to_string())?,
+            &redirect_uri,
+            PCLOUD_CLIENT_ID,
+            PCLOUD_CLIENT_SECRET,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.state::<AppState>()
+        .auth
+        .lock()
+        .unwrap()
+        .save(provider, credentials)
+        .map_err(|e| e.to_string())?;
 
     let _ = app.emit("oauth:complete", ());
+
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pcloud_logout(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
     state
         .auth
         .lock()
@@ -80,8 +97,8 @@ pub async fn pcloud_logout(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_auth_status(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.auth.lock().unwrap().is_authenticated())
+pub async fn get_auth_status(state: State<'_, AppState>) -> Result<Option<ProviderId>, String> {
+    Ok(state.auth.lock().unwrap().active_provider())
 }
 
 // --- pCloud folder browsing ---
@@ -89,15 +106,16 @@ pub async fn get_auth_status(state: State<'_, AppState>) -> Result<bool, String>
 #[tauri::command]
 pub async fn list_folder(
     state: State<'_, AppState>,
-    folder_id: u64,
-) -> Result<crate::pcloud::FolderContents, String> {
-    let token = {
-        let auth = state.auth.lock().unwrap();
-        auth.token().ok_or("not authenticated")?.to_owned()
-    };
-    let client = PCloudClient::new(token).map_err(|e| e.to_string())?;
+    provider: ProviderId,
+    folder_id: String,
+) -> Result<FolderContents, String> {
+    let credentials = get_or_refresh_credentials(state)
+        .await
+        .map_err(|e| e.to_string())?;
+    let client = make_client(provider, &credentials).map_err(|e| e.to_string())?;
+
     client
-        .list_folder(folder_id)
+        .list_folder(folder_id.as_str())
         .await
         .map_err(|e| e.to_string())
 }
@@ -113,17 +131,19 @@ pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, Str
 pub async fn scan_method(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-    root_folder_id: u64,
+    provider: ProviderId,
+    root_folder_id: String,
 ) -> Result<Vec<Method>, String> {
-    let token = {
-        let auth = state.auth.lock().unwrap();
-        auth.token().ok_or("not authenticated")?.to_owned()
-    };
-    let client = PCloudClient::new(token).map_err(|e| e.to_string())?;
-    let on_progress = Arc::new(move |event: crate::pcloud::ScanEvent| {
+    let credentials = get_or_refresh_credentials(state)
+        .await
+        .map_err(|e| e.to_string())?;
+    let client = make_client(provider, &credentials).map_err(|e| e.to_string())?;
+
+    let on_progress = Arc::new(move |event: chelou_providers::ScanEvent| {
         let _ = app.emit("scan:progress", event);
     });
-    crate::pcloud::scan_methods_in_folder(&client, root_folder_id, on_progress)
+
+    chelou_providers::scan_methods_in_folder(&client, root_folder_id.as_str(), on_progress)
         .await
         .map_err(|e| e.to_string())
 }
@@ -182,11 +202,46 @@ pub async fn update_backing_track_lead_in_override(
     state: State<'_, AppState>,
     method_id: String,
     lesson_id: String,
-    file_id: u64,
+    file_id: String,
     lead_in_ms: f64,
 ) -> Result<(), String> {
     state
         .manifest
         .update_backing_track_lead_in_override(&method_id, &lesson_id, file_id, lead_in_ms)
         .map_err(|e| e.to_string())
+}
+
+pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<StoredCredentials> {
+    let (provider, credentials) = {
+        let auth = state.auth.lock().unwrap();
+        let provider = auth
+            .active_provider()
+            .ok_or_else(|| anyhow!("not authenticated"))?;
+        let credentials = auth
+            .credentials()
+            .cloned()
+            .ok_or_else(|| anyhow!("not authenticated"))?;
+        (provider, credentials)
+    };
+
+    if credentials.expires_at.is_some_and(|exp| {
+        exp < SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }) {
+        let refreshed = make_auth(provider)
+            .refresh(&credentials, PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET)
+            .await?;
+
+        state
+            .auth
+            .lock()
+            .unwrap()
+            .save(provider, refreshed.clone())?;
+
+        return Ok(refreshed);
+    }
+
+    Ok(credentials)
 }

@@ -31,11 +31,12 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
   const videoPlayer = (
     <VideoPlayer
       chapterNum={chapter.num}
-      methodId={method.id}
-      methodTitle={method.title}
       fileId={lesson.video.fileId}
       lessonId={lesson.id}
       lessonStatus={lessonStatus}
+      methodId={method.id}
+      methodTitle={method.title}
+      provider={method.source.provider}
       resumeMs={lessonMeta?.resumeMs}
       onVideoEnd={handleVideoEnd}
     />

@@ -39,7 +39,7 @@ export default function DocumentsScreen({ method }: DocumentsScreenProps) {
               title="Double-clic pour ouvrir"
             >
               <div className="relative aspect-4/3">
-                <PreviewSurface document={doc} />
+                <PreviewSurface document={doc} provider={method.source.provider} />
                 <Badge className="absolute top-2 left-2 bg-[#6D6E6F] text-white dark:bg-[#060709]!">
                   {kindLabel[doc.kind]}
                 </Badge>
@@ -70,6 +70,7 @@ export default function DocumentsScreen({ method }: DocumentsScreenProps) {
         <DocumentModal
           document={openedDoc}
           label={kindLabel[openedDoc.kind]}
+          provider={method.source.provider}
           onClose={() => setOpenedDoc(null)}
         />
       )}

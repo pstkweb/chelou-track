@@ -1,9 +1,13 @@
 // stream:// custom URI scheme handler.
 // cf. ARCHITECTURE.md §4 — Rust generates AND consumes pCloud links (same IP = IP-binding solved).
+use chelou_providers::{fetch_range, ProviderId, StorageProvider};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
-use crate::commands::AppState;
+use crate::{
+    commands::{get_or_refresh_credentials, AppState},
+    providers::make_client,
+};
 
 // Tauri v2 passes UriSchemeContext as the first arg, not AppHandle directly.
 // We clone the AppHandle out of it before spawning so the async block is 'static.
@@ -38,15 +42,13 @@ async fn handle_inner<R: Runtime>(
     let req = parse_uri(&uri).ok_or_else(|| anyhow::anyhow!("invalid stream URI: {uri}"))?;
 
     let state = app.state::<AppState>();
-    let token = {
-        let auth = state.auth.lock().unwrap();
-        auth.token()
-            .ok_or_else(|| anyhow::anyhow!("not authenticated"))?
-            .to_owned()
-    };
 
-    let client = crate::pcloud::PCloudClient::new(token)
-        .map_err(|e| anyhow::anyhow!("failed to build client: {e}"))?;
+    if state.auth.lock().unwrap().active_provider() != Some(req.provider) {
+        anyhow::bail!("stream request for {uri} but active provider is not {req:?}");
+    }
+
+    let credentials = get_or_refresh_credentials(state.clone()).await?;
+    let client = make_client(req.provider, &credentials)?;
 
     let use_video_link = matches!(req.kind, StreamKind::Video) && req.transcoded;
     let pcloud_url = resolve_url(&state, req.file_id, use_video_link, &client).await?;
@@ -62,9 +64,7 @@ async fn handle_inner<R: Runtime>(
     const CHUNK: u64 = 1024 * 1024;
     let effective_range = cap_range(range_header.as_deref(), CHUNK).or(range_header);
 
-    let resp = client
-        .fetch_range(&pcloud_url, effective_range.as_deref())
-        .await?;
+    let resp = fetch_range(&state.http, pcloud_url.as_str(), effective_range.as_deref()).await?;
 
     let mut builder = tauri::http::Response::builder()
         .status(resp.status)
@@ -80,35 +80,33 @@ async fn handle_inner<R: Runtime>(
 }
 
 // --- URL cache ---
-
 const URL_TTL: Duration = Duration::from_secs(600); // pCloud links are valid ~15 min; we refresh at 10
 
 /// Return a cached pCloud download URL for `file_id`, refreshing if older than URL_TTL.
 /// Eliminates one getfilelink API round-trip per Range chunk during media playback.
 async fn resolve_url(
     state: &AppState,
-    file_id: u64,
+    file_id: String,
     use_video_link: bool,
-    client: &crate::pcloud::PCloudClient,
+    client: &crate::providers::ProviderClient,
 ) -> anyhow::Result<String> {
     // Check cache — drop the lock before any await.
     let cached = {
         let cache = state.url_cache.lock().unwrap();
         cache
-            .get(&(file_id, use_video_link))
+            .get(&(client.provider_id(), file_id.clone(), use_video_link))
             .filter(|(_, fetched_at)| fetched_at.elapsed() < URL_TTL)
             .map(|(url, _)| url.clone())
     };
     if let Some(url) = cached {
         return Ok(url);
     }
-    let url = if use_video_link {
-        client.get_video_link(file_id).await?
-    } else {
-        client.get_file_link(file_id).await?
-    };
+
+    let url = client
+        .resolve_download_url(&file_id.clone(), use_video_link)
+        .await?;
     state.url_cache.lock().unwrap().insert(
-        (file_id, use_video_link),
+        (client.provider_id(), file_id.clone(), use_video_link),
         (url.clone(), std::time::Instant::now()),
     );
     Ok(url)
@@ -141,12 +139,15 @@ fn cap_range(range: Option<&str>, chunk: u64) -> Option<String> {
 
 // --- URI parsing ---
 
+#[derive(Debug)]
 pub struct StreamRequest {
+    pub provider: ProviderId,
     pub kind: StreamKind,
-    pub file_id: u64,
+    pub file_id: String,
     pub transcoded: bool,
 }
 
+#[derive(Debug)]
 pub enum StreamKind {
     Video,
     Audio,
@@ -161,10 +162,12 @@ fn parse_uri(uri: &str) -> Option<StreamRequest> {
     let rest = uri.strip_prefix("stream://")?;
     // drop optional `localhost/` host injected by Tauri on Windows
     let rest = rest.strip_prefix("localhost/").unwrap_or(rest);
-    let (path, query) = rest.split_once('?').map_or((rest, ""), |p| p);
-    let mut parts = path.splitn(2, '/');
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    let mut parts = path.splitn(3, '/');
     let kind_str = parts.next()?;
-    let file_id: u64 = parts.next()?.parse().ok()?;
+    let provider_str = parts.next()?;
+    let file_id = parts.next()?.to_string();
+    let provider: ProviderId = provider_str.parse().ok()?;
     let transcoded = query.contains("transcoded=true");
     let kind = match kind_str {
         "video" => StreamKind::Video,
@@ -174,6 +177,7 @@ fn parse_uri(uri: &str) -> Option<StreamRequest> {
         _ => return None,
     };
     Some(StreamRequest {
+        provider,
         kind,
         file_id,
         transcoded,

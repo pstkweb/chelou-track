@@ -1,7 +1,7 @@
 mod auth;
 mod commands;
 mod manifest;
-mod pcloud;
+mod providers;
 mod stream;
 
 use commands::AppState;
@@ -44,13 +44,14 @@ pub fn run() {
             app.manage(AppState {
                 auth: Mutex::new(auth),
                 manifest: manifest::ManifestStore::new(app_dir),
+                http: reqwest::Client::new(),
                 url_cache: Mutex::new(HashMap::new()),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::pcloud_oauth_start,
-            commands::pcloud_logout,
+            commands::oauth_start,
+            commands::logout,
             commands::get_auth_status,
             commands::list_folder,
             commands::list_methods,

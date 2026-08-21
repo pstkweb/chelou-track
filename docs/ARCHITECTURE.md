@@ -31,13 +31,19 @@ Electron a été explicitement écarté.
 
 ## 3. Contraintes dures (load-bearing — ne jamais violer)
 
-1. **Le WebView ne voit jamais le token pCloud ni une URL pCloud brute.** Tout passe par
-   le backend Rust. C'est à la fois une exigence de sécurité et une exigence fonctionnelle
-   (voir contrainte 2).
+1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout passe
+   par le backend Rust. C'est une exigence de sécurité **appliquée uniformément à tous les
+   providers** (pCloud aujourd'hui ; Google Drive, Dropbox et autres potentiellement demain,
+   cf. décisions d'architecture multi-provider) — pas seulement une conséquence de la contrainte
+   2 ci-dessous. L'IP-binding pCloud (contrainte 2) est une raison suffisante pour pCloud, mais
+   ce n'est pas *la* raison de la règle : même un provider sans cette contrainte technique
+   (Google Drive et Dropbox n'ont pas d'IP-binding sur leurs liens temporaires) doit passer par
+   le même chemin, par cohérence et pour garder le token hors du WebView dans tous les cas.
 2. **Les liens pCloud sont liés à l'IP qui les génère** et leur referer est restreint à
    `pcloud.com` (une appli web qui les consomme directement reçoit `Invalid link referer`
    + erreurs CORS). Conséquence : c'est **Rust** qui génère ET consomme le lien, sur la même
    machine donc la même IP. Une appli purement navigateur est impossible — d'où le shell natif.
+   **Spécifique à pCloud** — ne pas supposer que ça généralise aux autres providers.
 3. **Endpoint EU obligatoire : `eapi.pcloud.com`** (utilisateur en France). Utiliser
    `api.pcloud.com` (US) donne des liens sous-optimaux voire invalides.
 4. **AlphaTab est l'unique moteur de tablature.** Ne pas tenter d'afficher le PDF dans la
@@ -207,7 +213,7 @@ de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
 interface Method {
   id: string;
   title: string;
-  source: { provider: 'pcloud'; rootFolderId: number };
+  source: { provider: 'pcloud' | 'gdrive' | 'dropbox'; rootFolderId: string };
   defaultCountInBars: number;     // 1 par défaut, réglage unique par méthode
   lessons: Lesson[];              // à plat, ordre de visionnage (tri naturel DFS)
   documents: DocumentRef[];       // bucket DOCUMENTS UTILES
@@ -242,7 +248,7 @@ interface BackingTrack {
 }
 
 interface DocumentRef { file: FileRef; kind: 'pdf' | 'image'; title: string; }
-interface FileRef { fileId: number; name: string; }
+interface FileRef { fileId: string; name: string; }
 ```
 
 ## 9. Persistance
@@ -290,11 +296,13 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
 Deux couches, jamais mélangées :
 
 **Tests unitaires** — rapides, zéro dépendance système (pas de Tauri, gtk, WebKit).
-Vivent dans les sous-crates sans dep Tauri : `chelou-manifest` et `chelou-pcloud`.
+Vivent dans les sous-crates sans dep Tauri : `chelou-manifest` et `chelou-providers` (ce
+dernier regroupe la logique de tous les providers cloud — pCloud aujourd'hui — en modules,
+aucun n'ayant de dépendance système qui justifierait un crate séparé).
 Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :
 
 ```
-cargo test -p chelou-manifest -p chelou-pcloud
+cargo test -p chelou-manifest -p chelou-providers
 ```
 
 Règle d'or : **toute logique testable unitairement doit vivre dans un sous-crate.**
@@ -305,7 +313,7 @@ La refacto vers un sous-crate est le bon mouvement, pas le mock de Tauri.
 complète (Tauri + WebView2) et sont donc lents et liés à la plateforme. Ils valident un
 comportement de bout en bout, pas de la logique isolée.
 
-**Corollaire architectural :** la séparation en sous-crates (`chelou-manifest`, `chelou-pcloud`)
+**Corollaire architectural :** la séparation en sous-crates (`chelou-manifest`, `chelou-providers`)
 n'est pas qu'une commodité d'organisation — c'est ce qui rend les tests unitaires possibles.
 Tout nouveau module avec de la logique non-triviale devrait idéalement rejoindre un sous-crate.
 

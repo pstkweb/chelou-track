@@ -1,6 +1,7 @@
 import { AlphaTabApi, NotationElement, type synth } from '@coderline/alphatab';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { docUrl } from '@/lib/stream';
+import type { Provider } from '@/types/model';
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -21,7 +22,8 @@ function alphaTabResources() {
 export default function useAlphaTabPlayer(
   tabElmt: RefObject<HTMLDivElement | null>,
   audioElmt: RefObject<HTMLAudioElement | null>,
-  tabFile: number | undefined,
+  tabFile: string | undefined,
+  provider: Provider,
 ) {
   const alphaTabRef = useRef<AlphaTabApi>(null);
   const beatsPerBarRef = useRef(4);
@@ -45,7 +47,7 @@ export default function useAlphaTabPlayer(
 
     const instance = new AlphaTabApi(tabElmt.current, {
       core: {
-        file: docUrl(tabFile),
+        file: docUrl(provider, tabFile),
         fontDirectory: '/font/',
       },
       display: {

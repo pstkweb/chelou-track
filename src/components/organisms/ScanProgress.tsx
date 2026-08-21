@@ -4,16 +4,23 @@ import { useEffect, useState } from 'react';
 import Button from '@/components/atoms/Button';
 import Spinner from '@/components/atoms/Spinner';
 import { type ScanProgressEvent, scanMethod } from '@/lib/ipc';
-import type { Method } from '@/types/model';
+import type { Method, Provider } from '@/types/model';
 
 type ScanProgressProps = {
-  folderId: number;
+  folderId: string;
   path: string;
+  provider: Provider;
   onDone: (methods: Method[]) => void;
   onCancel: () => void;
 };
 
-export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanProgressProps) {
+export default function ScanProgress({
+  folderId,
+  path,
+  provider,
+  onDone,
+  onCancel,
+}: ScanProgressProps) {
   const [scannedFolders, setScannedFolders] = useState(0);
   const [foundMethods, setFoundMethods] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +35,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
       unlisten = fn;
     });
 
-    scanMethod(folderId)
+    scanMethod(provider, folderId)
       .then((methods) => {
         unlisten?.();
 
@@ -43,7 +50,7 @@ export default function ScanProgress({ folderId, path, onDone, onCancel }: ScanP
     return () => {
       unlisten?.();
     };
-  }, [onDone, folderId]);
+  }, [onDone, folderId, provider]);
 
   return (
     <div

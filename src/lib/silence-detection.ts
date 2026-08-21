@@ -12,6 +12,7 @@
 // instead of the count-in's first click; 80bpm, which already worked, is unaffected).
 
 import { audioUrl } from '@/lib/stream';
+import type { Provider } from '@/types/model';
 
 export const WINDOW_MS = 20;
 export const NOISE_FLOOR_WINDOW_MS = 2000; // scan this much of the lead-in to estimate the floor
@@ -108,8 +109,11 @@ export function scanLeadingSilence(samples: Float32Array, sampleRate: number): n
  * purely for analysis (playback itself uses a plain `<audio>` element, cf. TabScreen.tsx) —
  * accepted cost for now, see design spec §5.
  */
-export async function detectLeadingSilence(fileId: number): Promise<number | undefined> {
-  const bytes = await fetch(audioUrl(fileId)).then((r) => r.arrayBuffer());
+export async function detectLeadingSilence(
+  provider: Provider,
+  fileId: string,
+): Promise<number | undefined> {
+  const bytes = await fetch(audioUrl(provider, fileId)).then((r) => r.arrayBuffer());
   const ctx = new AudioContext();
   try {
     const buffer = await ctx.decodeAudioData(bytes);

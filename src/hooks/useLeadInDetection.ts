@@ -30,7 +30,10 @@ export default function useLeadInDetection(
     let cancelled = false;
     const track = backingTrackSpeed;
 
-    Promise.all([detectLeadingSilence(track.audio.fileId), scoreLoadedRef.current])
+    Promise.all([
+      detectLeadingSilence(method.source.provider, track.audio.fileId),
+      scoreLoadedRef.current,
+    ])
       .then(([silenceMs]) => {
         if (cancelled || silenceMs === undefined) {
           return;
@@ -54,6 +57,7 @@ export default function useLeadInDetection(
     backingTrackSpeed,
     method.id,
     method.defaultCountInBars,
+    method.source.provider,
     lesson.id,
     beatsPerBarRef,
     notatedBpmRef,

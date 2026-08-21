@@ -11,6 +11,7 @@ import { ToastProvider } from '@/contexts/ToastContext';
 import useAppUpdater from '@/hooks/useAppUpdater';
 import useSystemTheme from '@/hooks/useSystemTheme';
 import { getAuthStatus, listMethods, markLessonSeen } from '@/lib/ipc';
+import type { Provider } from '@/types/model';
 import DocumentsScreen from '../templates/DocumentsScreen';
 import TabScreen from '../templates/TabScreen';
 
@@ -67,14 +68,17 @@ function AuthenticatedView() {
 
 export default function App() {
   const [state, setState] = useState<AppState>('loading');
+  const [connectedProvider, setConnectedProvider] = useState<Provider | undefined>(undefined);
 
   useEffect(() => {
-    getAuthStatus().then((authed) => {
-      if (!authed) {
+    getAuthStatus().then((provider) => {
+      if (!provider) {
         setState('no-auth');
 
         return;
       }
+
+      setConnectedProvider(provider);
 
       return listMethods().then((methods) => {
         setState(methods.length > 0 ? 'ready' : 'no-methods');
@@ -89,7 +93,7 @@ export default function App() {
         <BreadcrumbProvider>
           {state !== 'loading' && (
             <LibraryProvider>
-              <TitleBar connected={['no-methods', 'ready'].includes(state)} />
+              <TitleBar connectedProvider={connectedProvider} />
 
               <div className="app-body">
                 {state === 'ready' ? (

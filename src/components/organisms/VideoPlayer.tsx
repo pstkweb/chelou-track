@@ -6,11 +6,13 @@ import useTimecodeResume from '@/hooks/useTimecodeResume';
 import cn from '@/lib/cn';
 import type { LessonStatus } from '@/lib/method-view';
 import { videoUrl } from '@/lib/stream';
+import type { Provider } from '@/types/model';
 import IconButton from '../atoms/IconButton';
 
 type VideoPlayerProps = {
+  provider: Provider;
   chapterNum: number;
-  fileId: number;
+  fileId: string;
   lessonId: string;
   lessonStatus: LessonStatus;
   methodId: string;
@@ -33,10 +35,11 @@ function fmtTime(seconds: number, usePlaceholder = false) {
 export default function VideoPlayer({
   fileId,
   chapterNum,
-  methodId,
-  methodTitle,
   lessonId,
   lessonStatus,
+  methodId,
+  methodTitle,
+  provider,
   resumeMs,
   onVideoEnd,
 }: VideoPlayerProps) {
@@ -140,7 +143,7 @@ export default function VideoPlayer({
           'aspect-video overflow-hidden rounded-lg bg-(--media) shadow-soft',
           isFullscreen && 'aspect-auto h-full w-full rounded-none shadow-none',
         )}
-        src={videoUrl(fileId)}
+        src={videoUrl(provider, fileId)}
         controls={false}
         onLoadedMetadata={handleMetadataLoaded}
         onTimeUpdate={handleWatchProgress}

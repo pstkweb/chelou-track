@@ -1,10 +1,11 @@
 // Data model — source of truth: docs/ARCHITECTURE.md §8
 // Mirrors the Rust structs in src-tauri/crates/manifest/src/lib.rs.
+export type Provider = 'pcloud' | 'gdrive' | 'dropbox';
 
 export interface Method {
   id: string;
   title: string;
-  source: { provider: 'pcloud'; rootFolderId: number };
+  source: { provider: Provider; rootFolderId: string };
   defaultCountInBars: number;
   /** Ordered mix of lessons and sections at the method root, in DFS natural sort. */
   items: SectionItem[];
@@ -88,6 +89,6 @@ export interface DocumentRef {
 }
 
 export interface FileRef {
-  fileId: number;
+  fileId: string;
   name: string;
 }

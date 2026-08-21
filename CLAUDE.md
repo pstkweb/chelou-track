@@ -29,7 +29,7 @@ cd src-tauri && cargo check
 cd src-tauri && cargo clippy
 
 # Tests unitaires Rust (sous-crates sans dépendances système Tauri — cf. §15 ARCHITECTURE.md)
-cd src-tauri && cargo test -p chelou-manifest -p chelou-pcloud
+cd src-tauri && cargo test -p chelou-manifest -p chelou-providers
 
 # Vérification TypeScript sans emit
 npx tsc --noEmit
@@ -49,49 +49,58 @@ npx tsc --noEmit
 ### Frontière Rust / TypeScript
 
 ```
-TS (WebView)          Rust (Tauri backend)           pCloud EU
-──────────────────    ───────────────────────        ──────────────
-invoke("cmd")    ──►  commands/mod.rs           ──►  eapi.pcloud.com
-fetch("stream://") ►  stream/mod.rs (protocol)  ──►  bytes (Range)
+TS (WebView)          Rust (Tauri backend)                 Provider cloud (pCloud aujourd'hui)
+──────────────────    ─────────────────────────────        ────────────────────────────────────
+invoke("cmd")    ──►  commands/mod.rs                 ──►  eapi.pcloud.com
+fetch("stream://") ►  stream/mod.rs (protocol)         ──►  bytes (Range)
                       auth/mod.rs (keyring)
-                      pcloud/mod.rs (API client)
-                      pcloud/scanner.rs (scan DFS)
+                      providers/mod.rs (registre ProviderClient/ProviderAuthClient)
+                      crates/providers (trait StorageProvider + adapters par provider)
                       manifest/mod.rs (JSON local)
 ```
 
-Le WebView ne touche jamais le token ni une URL pCloud brute. Tout transite par `invoke()` ou le protocole custom `stream://`.
+Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite par `invoke()` ou le protocole custom `stream://`. Cette garde s'applique uniformément quel que soit le provider connecté — voir `docs/ARCHITECTURE.md` §3.
 
 ### Modules Rust
 
-`src-tauri/` est un workspace Cargo avec deux crates :
+`src-tauri/` est un workspace Cargo avec deux sous-crates (`chelou-manifest`, `chelou-providers`) en plus du crate principal :
 
 **`src-tauri/` (crate principal — dépend de Tauri)**
 
 | Module | Rôle |
 |---|---|
 | `src/lib.rs` | Point d'entrée ; wire le handler `stream://`, l'`AppState` et l'`invoke_handler` |
-| `src/commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes |
-| `src/auth/` | `AuthStore` : token en mémoire + persistance keychain (Windows Credential Manager) |
-| `src/pcloud/mod.rs` | `PCloudClient` : `getfilelink`, `getvideolink`, `listfolder`, `fetch_range` |
-| `src/pcloud/scanner.rs` | Scan DFS pCloud → `Method` : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` |
-| `src/stream/mod.rs` | Handler `stream://` : parse l'URI, appelle `getfilelink`/`getvideolink`, forward le header `Range` |
+| `src/commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes, paramétrées par `ProviderId` |
+| `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance keychain |
+| `src/providers/mod.rs` | Registre : enum `ProviderClient`/`ProviderAuthClient` (dispatch par `match`, un bras par provider) + `make_client`/`make_auth` |
+| `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib.rs` | Modèle Rust miroir de `types/model.ts` + `ManifestStore` (un JSON par méthode dans l'app-data dir) |
+| `src/lib.rs` | Modèle Rust miroir de `types/model.ts` + `ManifestStore` (un JSON par méthode dans l'app-data dir). `MethodSource.provider` est une `String` libre, non couplée à `chelou-providers` |
 
-Ce découpage permet de tester le modèle et la persistance sans compiler Tauri ni les dépendances système (GTK, WebKit).
+**`src-tauri/crates/providers/` (sous-crate `chelou-providers` — dépendances : pas de Tauri, un module par provider)**
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib.rs` | Types neutres (`Entry`, `FolderContents`, `RangeResponse`), `ProviderId` (Display/FromStr), traits `StorageProvider`/`ProviderAuth`, `StoredCredentials`, `fetch_range` (fonction libre) |
+| `src/scanner.rs` | Scan DFS générique (`scan_tree`/`scan_methods_in_folder<P: StorageProvider>`) : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` — indépendant du provider |
+| `src/oauth.rs` | Boucle loopback OAuth partagée (`bind_loopback`, `wait_for_token`) — mécanique HTTP générique, aucune connaissance d'un provider particulier |
+| `src/pcloud.rs` | Adapter pCloud : `PCloudClient`/`PCloudAuth`, `map_entry`/`map_folder`, impls `StorageProvider` + `ProviderAuth` |
+
+Tous les providers (pCloud aujourd'hui, Google Drive/Dropbox à venir) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à deux sous-crates permet de tester le modèle, la persistance et la logique provider sans compiler Tauri ni les dépendances système (GTK, WebKit).
 
 ### Modules TypeScript (`src/`)
 
 | Fichier | Rôle |
 |---|---|
 | `types/model.ts` | Interfaces du modèle (§8 ARCHITECTURE.md) — source de vérité TS |
-| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust |
-| `lib/stream.ts` | Constructeurs d'URL `stream://video/{id}`, `stream://audio/{id}`, etc. |
+| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider` |
+| `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://audio/{provider}/{id}`, etc. |
+| `lib/providers.ts` | Registre `PROVIDERS` (label, icône par `Provider`) — source unique pour l'UI (ConnectScreen, FolderPicker, TitleBar) |
 | `lib/silence-detection.ts` | Détection du silence de tête d'un backing track (`decodeAudioData` + analyse d'amplitude) |
 | `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |
 | `components/templates/TabScreen.tsx` | Vue synchro : `<audio>` + AlphaTab (boucle de synchro, voir ci-dessous) |
@@ -143,7 +152,7 @@ Deux couches distinctes (cf. `docs/ARCHITECTURE.md` §15) :
 
 | Couche | Périmètre | Vitesse | Commande |
 |---|---|---|---|
-| **Unitaires** | Sous-crates `chelou-manifest`, `chelou-pcloud` — logique pure, zéro dep Tauri | Rapide, CI ubuntu | `cargo test -p chelou-manifest -p chelou-pcloud` |
+| **Unitaires** | Sous-crates `chelou-manifest`, `chelou-providers` — logique pure, zéro dep Tauri | Rapide, CI ubuntu | `cargo test -p chelou-manifest -p chelou-providers` |
 | **Intégration** | Comportement complet (Tauri + WebView2 + pCloud) | Lent, lié à la plateforme | *(aucun pour l'instant)* |
 
 **Règle :** toute logique testable unitairement vit dans un sous-crate sans dep Tauri. Si une
@@ -151,8 +160,8 @@ fonction nécessite Tauri pour compiler, la refacto vers un sous-crate est la r�
 
 ## Règles non négociables
 
-1. **Le WebView ne voit jamais le token pCloud ni une URL pCloud brute.** Tout transite par Rust via `stream://` ou `invoke()`.
-2. **Endpoint pCloud EU : `eapi.pcloud.com`** (jamais l'endpoint US `api.pcloud.com`).
+1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout transite par Rust via `stream://` ou `invoke()` — règle uniforme quel que soit le provider connecté, pas seulement une conséquence de la contrainte pCloud ci-dessous (cf. `docs/ARCHITECTURE.md` §3).
+2. **Endpoint pCloud EU : `eapi.pcloud.com`** (jamais l'endpoint US `api.pcloud.com`). Spécifique à pCloud — ne généralise pas aux autres providers.
 3. **L'audio est l'horloge maître ; AlphaTab est piloté.** Voir boucle ci-dessus.
 4. **AlphaTab est l'unique moteur de tablature.** Jamais de PDF dans la vue synchro.
 5. **Ne pas appairer tab ↔ backing track par le nom.** Sur-rattacher en pool (cf. `docs/ARCHITECTURE.md` §6).
@@ -220,4 +229,5 @@ pub fn handle<R: Runtime>(
 ## Conventions
 
 - `crates/manifest/src/lib.rs` (Rust) et `types/model.ts` (TS) doivent rester en miroir (serde `rename` pour camelCase). `src/manifest/mod.rs` est un stub `pub use chelou_manifest::*` — ne pas y écrire de logique.
-- Token pCloud : jamais en clair sur disque, toujours via `keyring::Entry`.
+- Token/credentials du provider connecté : jamais en clair sur disque, toujours via `keyring::Entry` (une seule connexion active à la fois, cf. `AuthStore`).
+- Ajouter un provider (Google Drive, Dropbox, …) = un nouveau module dans `crates/providers/src/` implémentant `StorageProvider` + `ProviderAuth`, plus un bras dans `ProviderId`/`make_client`/`make_auth` (Rust) et dans `PROVIDERS` (`src/lib/providers.ts`) — pas de nouveau crate sauf si ce provider a une dépendance système (cf. `docs/ARCHITECTURE.md` §15 et la conception dans les décisions d'architecture).

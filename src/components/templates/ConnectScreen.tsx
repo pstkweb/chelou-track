@@ -4,7 +4,8 @@ import Button from '@/components/atoms/Button';
 import Spinner from '@/components/atoms/Spinner';
 import FolderPicker from '@/components/organisms/FolderPicker';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
-import { pcloudOauthStart } from '@/lib/ipc';
+import { oauthStart } from '@/lib/ipc';
+import type { Provider } from '@/types/model';
 
 type ConnectScreenProps = {
   startAtFolder?: boolean;
@@ -23,6 +24,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
   const [phase, setPhase] = useState<ConnectPhase>(startAtFolder ? 'folder' : 'idle');
   const [oauthErr, setOauthErr] = useState<string | null>(null);
   const { dispatch: dispatchBreadcrumb } = useBreadcrumb();
+  const provider: Provider = 'pcloud';
 
   useEffect(() => {
     dispatchBreadcrumb({ type: 'clear' });
@@ -32,7 +34,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
     setOauthErr(null);
     setPhase('consent'); // show spinner before opening the popup
     try {
-      await pcloudOauthStart(); // blocks until OAuth complete or cancelled
+      await oauthStart(provider); // blocks until OAuth complete or cancelled
       setPhase('folder');
     } catch (e) {
       setOauthErr(String(e));
@@ -134,7 +136,7 @@ export default function ConnectScreen({ startAtFolder = false, onConnected }: Co
             </div>
           </div>
         ) : (
-          <FolderPicker onConnected={onConnected} />
+          <FolderPicker provider={provider} onConnected={onConnected} />
         )}
       </div>
     </div>

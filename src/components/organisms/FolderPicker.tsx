@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, Cloud, Folder, Search } from 'lucide-react';
+import { AlertCircle, ChevronRight, Folder, Search } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 import Button from '@/components/atoms/Button';
 import Chip from '@/components/atoms/Chip';
@@ -8,11 +8,13 @@ import ScanReview from '@/components/organisms/ScanReview';
 import cn from '@/lib/cn';
 import type { FolderEntry } from '@/lib/ipc';
 import { listFolder } from '@/lib/ipc';
-import type { Method } from '@/types/model';
+import { PROVIDERS } from '@/lib/providers';
+import type { Method, Provider } from '@/types/model';
 
-type Crumb = { id: number; name: string };
+type Crumb = { id: string; name: string };
 
 type FolderPickerProps = {
+  provider: Provider;
   title?: string;
   onConnected: () => void;
 };
@@ -20,19 +22,20 @@ type FolderPickerProps = {
 type State = 'browse' | 'scan' | 'review';
 
 export default function FolderPicker({
+  provider,
   title = 'Où sont tes méthodes ?',
   onConnected,
 }: FolderPickerProps) {
   const [state, setState] = useState<State>('browse');
   const [path, setPath] = useState<string>('/');
   // crumbs[0] is always root. The current folder is the last crumb.
-  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: 0, name: 'pCloud' }]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: '0', name: PROVIDERS[provider].label }]);
   const [entries, setEntries] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revealedMethods, setRevealedMethods] = useState<Method[]>([]);
 
-  const currentId = crumbs[crumbs.length - 1]?.id ?? 0;
+  const currentId = crumbs[crumbs.length - 1]?.id ?? '0';
 
   const pathFromCrumbs = useMemo(
     () =>
@@ -49,7 +52,7 @@ export default function FolderPicker({
     setLoading(true);
     setError(null);
 
-    listFolder(currentId)
+    listFolder(provider, currentId)
       .then((folders) => {
         if (!cancelled) {
           setEntries(folders);
@@ -67,14 +70,14 @@ export default function FolderPicker({
     return () => {
       cancelled = true;
     };
-  }, [currentId, pathFromCrumbs]);
+  }, [provider, currentId, pathFromCrumbs]);
 
   const enter = (entry: FolderEntry) =>
     setCrumbs((prev) => [...prev, { id: entry.folderid, name: entry.name }]);
 
   const goTo = (index: number) => setCrumbs((prev) => prev.slice(0, index + 1));
 
-  const breadcrumbSegs = crumbs.slice(1); // skip root — shown as "pCloud" chip
+  const breadcrumbSegs = crumbs.slice(1); // skip root — shown as cloud provider chip
 
   const handleScanDone = (methods: Method[]) => {
     setRevealedMethods(methods);
@@ -86,6 +89,7 @@ export default function FolderPicker({
       <ScanProgress
         folderId={currentId}
         path={path}
+        provider={provider}
         onDone={handleScanDone}
         onCancel={() => setState('browse')}
       />
@@ -102,9 +106,12 @@ export default function FolderPicker({
     );
   }
 
+  const providerLabel = PROVIDERS[provider].label;
+  const ProviderIcon = PROVIDERS[provider].icon;
+
   return (
     <div className="card w-[min(440px,100%)] animate-[fadeUp_.35s_var(--ease)] p-7">
-      <div className="eyebrow mb-1.5">Étape 2 / 3 · pCloud connecté</div>
+      <div className="eyebrow mb-1.5">Étape 2 / 3 · {providerLabel} connecté</div>
       <h2 className="display m-0 mb-1 text-2xl">{title}</h2>
       <p className="m-0 mb-4 text-fg2 text-xs leading-normal">
         Choisis un dossier : on en analysera le contenu pour y repérer les méthodes.
@@ -113,7 +120,7 @@ export default function FolderPicker({
       {/* fil d'ariane */}
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
         <Chip as="button" className="h-7 cursor-pointer" onClick={() => goTo(0)}>
-          <Cloud size={13} /> pCloud
+          <ProviderIcon size={13} /> {providerLabel}
         </Chip>
         {breadcrumbSegs.map((seg, i) => {
           const idx = i + 1; // real index in crumbs

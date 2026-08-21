@@ -5,7 +5,8 @@ import MethodCard from '@/components/organisms/MethodCard';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import { useToast } from '@/contexts/ToastContext';
-import type { Method } from '@/types/model';
+import { getAuthStatus } from '@/lib/ipc';
+import type { Method, Provider } from '@/types/model';
 import Button from '../atoms/Button';
 import IconButton from '../atoms/IconButton';
 import FolderPicker from '../organisms/FolderPicker';
@@ -22,11 +23,16 @@ export default function LibraryScreen() {
   const { methods, refresh, remove } = useLibrary();
   const [q, setQ] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<Provider | null>(null);
   const library = methods.filter((m) => sanitize(m.title).includes(sanitize(q)));
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    getAuthStatus().then(setActiveProvider);
+  }, []);
 
   const handleDelete = async (method: Method) => {
     try {
@@ -69,7 +75,7 @@ export default function LibraryScreen() {
         )}
       </div>
 
-      {isAdding && (
+      {isAdding && activeProvider && (
         <div
           role="dialog"
           aria-modal
@@ -86,6 +92,7 @@ export default function LibraryScreen() {
               X
             </IconButton>
             <FolderPicker
+              provider={activeProvider}
               title="Quel dossier de méthode importer ?"
               onConnected={() => setIsAdding(false)}
             />

@@ -1,20 +1,20 @@
 // Typed wrappers around Tauri invoke() — the only way the frontend talks to pCloud.
 // Never call pCloud APIs directly from TS (cf. ARCHITECTURE.md §3 + §5).
 import { invoke } from '@tauri-apps/api/core';
-import type { Method } from '@/types/model';
+import type { Method, Provider } from '@/types/model';
 
 // --- Auth ---
 
 /** Open the pCloud OAuth popup and await completion. Throws on cancel or error. */
-export async function pcloudOauthStart(): Promise<void> {
-  await invoke('pcloud_oauth_start');
+export async function oauthStart(provider: Provider): Promise<void> {
+  await invoke('oauth_start', { provider });
 }
 
-export async function pcloudLogout(): Promise<void> {
-  await invoke('pcloud_logout');
+export async function logout(): Promise<void> {
+  await invoke('logout');
 }
 
-export async function getAuthStatus(): Promise<boolean> {
+export async function getAuthStatus(): Promise<Provider | null> {
   return invoke('get_auth_status');
 }
 
@@ -22,7 +22,7 @@ export async function getAuthStatus(): Promise<boolean> {
 
 export interface FolderEntry {
   name: string;
-  folderid: number;
+  folderid: string;
 }
 
 export interface ScanProgressEvent {
@@ -32,12 +32,11 @@ export interface ScanProgressEvent {
 }
 
 /** Returns only the sub-folder children of the given folder (files are filtered out). */
-export async function listFolder(folderId: number): Promise<FolderEntry[]> {
-  const result: { contents: Array<{ name: string; isfolder: boolean; folderid?: number }> } =
-    await invoke('list_folder', { folderId });
-  return result.contents
-    .filter((e) => e.isfolder && e.folderid != null)
-    .map((e) => ({ name: e.name, folderid: e.folderid ?? 0 }));
+export async function listFolder(provider: Provider, folderId: string): Promise<FolderEntry[]> {
+  const result: { contents: Array<{ id: string; name: string; is_folder: boolean }> } =
+    await invoke('list_folder', { provider, folderId });
+
+  return result.contents.filter((e) => e.is_folder).map((e) => ({ name: e.name, folderid: e.id }));
 }
 
 // --- Catalogue / manifest ---
@@ -47,8 +46,8 @@ export async function listMethods(): Promise<Method[]> {
 }
 
 /** Scan a pCloud folder and return a fully-built Method (not yet persisted). */
-export async function scanMethod(rootFolderId: number): Promise<Method[]> {
-  return invoke('scan_method', { rootFolderId });
+export async function scanMethod(provider: Provider, rootFolderId: string): Promise<Method[]> {
+  return invoke('scan_method', { provider, rootFolderId });
 }
 
 export async function saveMethod(method: Method): Promise<void> {
@@ -91,7 +90,7 @@ export async function updateLessonResume(
 export async function updateBackingTrackLeadInOverride(
   methodId: string,
   lessonId: string,
-  fileId: number,
+  fileId: string,
   leadInMs: number,
 ): Promise<void> {
   await invoke('update_backing_track_lead_in_override', { methodId, lessonId, fileId, leadInMs });

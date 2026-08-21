@@ -84,7 +84,7 @@ fn find_lesson_mut<'a>(items: &'a mut [SectionItem], lesson_id: &str) -> Option<
 pub struct MethodSource {
     pub provider: String,
     #[serde(rename = "rootFolderId")]
-    pub root_folder_id: u64,
+    pub root_folder_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub enum DocKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRef {
     #[serde(rename = "fileId")]
-    pub file_id: u64,
+    pub file_id: String,
     pub name: String,
 }
 
@@ -234,7 +234,7 @@ impl ManifestStore {
         &self,
         method_id: &str,
         lesson_id: &str,
-        file_id: u64,
+        file_id: String,
         lead_in_ms: f64,
     ) -> Result<()> {
         self.update_method(method_id, |m| {
@@ -272,7 +272,7 @@ mod tests {
             order,
             title: format!("Lesson {order}"),
             video: FileRef {
-                file_id: 1,
+                file_id: "1".into(),
                 name: "video.mp4".into(),
             },
             tabs: vec![TabSet {
@@ -281,7 +281,7 @@ mod tests {
                 files: vec![TabFile {
                     ext: "gp".into(),
                     file: FileRef {
-                        file_id: 2,
+                        file_id: "2".into(),
                         name: "tab.gp".into(),
                     },
                 }],
@@ -290,7 +290,7 @@ mod tests {
                 label: "partie distorsion".into(),
                 tracks: vec![BackingTrack {
                     audio: FileRef {
-                        file_id: 3,
+                        file_id: "3".into(),
                         name: "Backing track partie distorsion (120bpm).wav".into(),
                     },
                     bpm: 120,
@@ -306,7 +306,7 @@ mod tests {
             title: "Test Method".into(),
             source: MethodSource {
                 provider: "pcloud".into(),
-                root_folder_id: 123456789,
+                root_folder_id: "123456789".into(),
             },
             default_count_in_bars: 1,
             // Root: lesson 1, then CHAP 1 section, then lesson 3 — tests interleaving
@@ -322,7 +322,7 @@ mod tests {
             ],
             documents: vec![DocumentRef {
                 file: FileRef {
-                    file_id: 4,
+                    file_id: "4".into(),
                     name: "sheet.pdf".into(),
                 },
                 kind: DocKind::Pdf,
@@ -437,7 +437,12 @@ mod tests {
         store.save(&sample_method()).unwrap();
 
         store
-            .update_backing_track_lead_in_override("test-method", "lesson-1", 3, 1490.0)
+            .update_backing_track_lead_in_override(
+                "test-method",
+                "lesson-1",
+                "3".to_owned(),
+                1490.0,
+            )
             .unwrap();
 
         let reloaded = store.load_all().unwrap();
@@ -465,7 +470,12 @@ mod tests {
 
         // lesson-2 lives inside the "CHAP 1 Intro" section — exercises the recursive lookup.
         store
-            .update_backing_track_lead_in_override("test-method", "lesson-2", 3, 2990.0)
+            .update_backing_track_lead_in_override(
+                "test-method",
+                "lesson-2",
+                "3".to_owned(),
+                2990.0,
+            )
             .unwrap();
 
         let reloaded = store.load_all().unwrap();
@@ -496,7 +506,12 @@ mod tests {
 
         // Must not error even though "does-not-exist" isn't a real lesson id.
         store
-            .update_backing_track_lead_in_override("test-method", "does-not-exist", 3, 999.0)
+            .update_backing_track_lead_in_override(
+                "test-method",
+                "does-not-exist",
+                "3".to_owned(),
+                999.0,
+            )
             .unwrap();
 
         let reloaded = store.load_all().unwrap();

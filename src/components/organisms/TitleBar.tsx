@@ -5,12 +5,14 @@ import Chip from '@/components/atoms/Chip';
 import WindowControls from '@/components/atoms/WindowControls';
 import Breadcrumb from '@/components/molecules/Breadcrumb';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
+import { PROVIDERS } from '@/lib/providers';
+import type { Provider } from '@/types/model';
 
 type TitleBarProps = {
-  connected: boolean;
+  connectedProvider: Provider | undefined;
 };
 
-export default function TitleBar({ connected }: TitleBarProps) {
+export default function TitleBar({ connectedProvider }: TitleBarProps) {
   const [isMac, setIsMac] = useState<boolean>(false);
   const { items: breadcrumb } = useBreadcrumb();
 
@@ -29,9 +31,10 @@ export default function TitleBar({ connected }: TitleBarProps) {
       </div>
       {breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
       <div className="tb-spacer" />
-      {connected && (
+      {connectedProvider && (
         <Chip className="h-6 text-xs">
-          <span className="size-2 flex-initial rounded-full bg-done" /> pCloud
+          <span className="size-2 flex-initial rounded-full bg-done" />{' '}
+          {PROVIDERS[connectedProvider].label}
         </Chip>
       )}
       {!isMac && <WindowControls />}
