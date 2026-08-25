@@ -84,8 +84,20 @@ chargé en `ArrayBuffer`.
 Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
 
 **Rust (backend Tauri) :**
-- Auth pCloud + stockage sécurisé du token (keychain OS via `keyring`, ou
-  `tauri-plugin-stronghold` chiffré — **jamais** en clair dans un fichier).
+- Auth pCloud/Dropbox + stockage sécurisé du token : `keyring_core::Entry`, jamais en clair sur
+  disque. Le store backend derrière `Entry` est choisi par OS au démarrage
+  (`set_default_store` dans `src/lib.rs`) : `keyring-dpapi-store` (sous-crate maison, fichier
+  chiffré DPAPI `Scope::User` — lié au compte Windows courant) sur Windows,
+  `apple-native-keyring-store` (Keychain) sur macOS, `zbus-secret-service-keyring-store`
+  (Secret Service) sur Linux. Deux mécanismes testés et abandonnés avant le store DPAPI
+  maison : `keyring` (Windows Credential Manager) plafonne un mot de passe générique à
+  ~2560 caractères UTF-16, dépassé par certains couples access+refresh token (Dropbox) ;
+  `tauri-plugin-stronghold` ouvrait/committait le vault en 60s+ et ne relisait pas fiablement
+  ce qui venait d'être écrit. DPAPI n'a ni plafond de taille ni gestion de clé séparée (le
+  compte Windows fait office de clé), et le round-trip est quasi instantané — d'où le store
+  maison plutôt que Credential Manager, réservé à Windows où keyring-core n'a pas
+  d'équivalent natif sans plafond. macOS et Linux utilisent leurs stores keyring-core
+  standards (Keychain, Secret Service), sans cette contrainte de taille connue.
 - Client API pCloud, endpoint EU (`eapi.pcloud.com`) : listing de dossiers (catalogue),
   `getfilelink` / `getvideolink`.
 - Handler du protocole `stream://` (Range + fallback transcodé).
@@ -304,6 +316,12 @@ Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :
 ```
 cargo test -p chelou-manifest -p chelou-providers
 ```
+
+Un troisième sous-crate, `keyring-dpapi-store` (§5), partage la même propriété de zéro
+dépendance Tauri, mais ses tests sont spécifiques à Windows (`#![cfg(windows)]`) — la CI tourne
+sur `ubuntu-latest`, donc ils n'y sont pas encore câblés. Ils passent (`cargo test -p
+keyring-dpapi-store`) mais restent, pour l'instant, lancés localement uniquement ; la commande
+canonique ci-dessus ne les inclut pas.
 
 Règle d'or : **toute logique testable unitairement doit vivre dans un sous-crate.**
 Si une fonction a besoin de Tauri pour être compilée, elle ne peut pas être testée unitairement.

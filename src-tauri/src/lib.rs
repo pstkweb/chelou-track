@@ -10,22 +10,6 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 pub fn run() {
-    #[cfg(target_os = "windows")]
-    keyring_core::set_default_store(
-        windows_native_keyring_store::Store::new()
-            .expect("failed to init Windows credential store"),
-    );
-    #[cfg(target_os = "macos")]
-    keyring_core::set_default_store(
-        apple_native_keyring_store::keychain::Store::new()
-            .expect("failed to init macOS keychain store"),
-    );
-    #[cfg(target_os = "linux")]
-    keyring_core::set_default_store(
-        zbus_secret_service_keyring_store::Store::new()
-            .expect("failed to init Secret Service store"),
-    );
-
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -37,8 +21,21 @@ pub fn run() {
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
 
+            #[cfg(target_os = "windows")]
+            keyring_core::set_default_store(keyring_dpapi_store::Store::new(app_dir.clone()));
+            #[cfg(target_os = "macos")]
+            keyring_core::set_default_store(
+                apple_native_keyring_store::keychain::Store::new()
+                    .expect("failed to init macOS keychain store"),
+            );
+            #[cfg(target_os = "linux")]
+            keyring_core::set_default_store(
+                zbus_secret_service_keyring_store::Store::new()
+                    .expect("failed to init Secret Service store"),
+            );
+
             let mut auth = auth::AuthStore::new();
-            // Restore token from OS keychain (normal path).
+            // Restore token from the credential store (normal path).
             let _ = auth.load_from_keychain();
 
             app.manage(AppState {

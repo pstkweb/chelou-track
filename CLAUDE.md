@@ -42,7 +42,7 @@ npx tsc --noEmit
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
 - **Balise `<audio>`** pointée sur `stream://audio/{id}` pour la lecture des backing tracks (streaming progressif, `playbackRate` natif). **Web Audio API** (`AudioContext` / `decodeAudioData`) réservée à un usage ponctuel : l'analyse du silence de tête d'un track, pas la lecture.
 - **reqwest** côté Rust pour les appels pCloud + streaming Range.
-- **keyring** pour le token pCloud (Windows Credential Manager).
+- **keyring-core** pour le token du provider connecté (store par OS — `keyring-dpapi-store` maison sur Windows, Keychain/Secret Service natifs ailleurs).
 
 ## Architecture
 
@@ -53,7 +53,7 @@ TS (WebView)          Rust (Tauri backend)                 Provider cloud (pClou
 ──────────────────    ─────────────────────────────        ────────────────────────────────────
 invoke("cmd")    ──►  commands/mod.rs                 ──►  eapi.pcloud.com
 fetch("stream://") ►  stream/mod.rs (protocol)         ──►  bytes (Range)
-                      auth/mod.rs (keyring)
+                      auth/mod.rs (keyring-core, store par OS)
                       providers/mod.rs (registre ProviderClient/ProviderAuthClient)
                       crates/providers (trait StorageProvider + adapters par provider)
                       manifest/mod.rs (JSON local)
@@ -63,7 +63,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 
 ### Modules Rust
 
-`src-tauri/` est un workspace Cargo avec deux sous-crates (`chelou-manifest`, `chelou-providers`) en plus du crate principal :
+`src-tauri/` est un workspace Cargo avec trois sous-crates (`chelou-manifest`, `chelou-providers`, `keyring-dpapi-store`) en plus du crate principal :
 
 **`src-tauri/` (crate principal — dépend de Tauri)**
 
@@ -71,7 +71,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 |---|---|
 | `src/lib.rs` | Point d'entrée ; wire le handler `stream://`, l'`AppState` et l'`invoke_handler` |
 | `src/commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes, paramétrées par `ProviderId` |
-| `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance keychain |
+| `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance via keyring-core (store par OS) |
 | `src/providers/mod.rs` | Registre : enum `ProviderClient`/`ProviderAuthClient` (dispatch par `match`, un bras par provider) + `make_client`/`make_auth` |
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
@@ -91,7 +91,13 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/oauth.rs` | Boucle loopback OAuth partagée (`bind_loopback`, `wait_for_token`) — mécanique HTTP générique, aucune connaissance d'un provider particulier |
 | `src/pcloud.rs` | Adapter pCloud : `PCloudClient`/`PCloudAuth`, `map_entry`/`map_folder`, impls `StorageProvider` + `ProviderAuth` |
 
-Tous les providers (pCloud aujourd'hui, Google Drive/Dropbox à venir) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à deux sous-crates permet de tester le modèle, la persistance et la logique provider sans compiler Tauri ni les dépendances système (GTK, WebKit).
+Tous les providers (pCloud et Dropbox aujourd'hui, Google Drive à venir) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à trois sous-crates permet de tester le modèle, la persistance et la logique provider — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit).
+
+**`src-tauri/crates/keyring-dpapi-store/`** (sous-crate `keyring-dpapi-store` — dépendances : `keyring-core` + `windows-dpapi`, zéro dépendance Tauri, Windows uniquement)
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib.rs` | `#![cfg(windows)]`. Implémente les traits `CredentialStoreApi`/`CredentialApi` de `keyring-core` : store de credentials backé par des fichiers chiffrés DPAPI (`Scope::User`), un fichier par couple `<service, user>` |
 
 ### Modules TypeScript (`src/`)
 
@@ -229,5 +235,5 @@ pub fn handle<R: Runtime>(
 ## Conventions
 
 - `crates/manifest/src/lib.rs` (Rust) et `types/model.ts` (TS) doivent rester en miroir (serde `rename` pour camelCase). `src/manifest/mod.rs` est un stub `pub use chelou_manifest::*` — ne pas y écrire de logique.
-- Token/credentials du provider connecté : jamais en clair sur disque, toujours via `keyring::Entry` (une seule connexion active à la fois, cf. `AuthStore`).
+- Token/credentials du provider connecté : jamais en clair sur disque — `keyring-core::Entry`, backé par un store par OS : `keyring-dpapi-store` (maison, fichier chiffré DPAPI `Scope::User`) sur Windows, `apple-native-keyring-store` (Keychain) sur macOS, `zbus-secret-service-keyring-store` (Secret Service) sur Linux. Le store Windows maison existe parce que Windows Credential Manager plafonne un mot de passe générique à ~2560 caractères UTF-16, dépassé par certains couples access+refresh token (Dropbox) ; `tauri-plugin-stronghold` a aussi été essayé et abandonné (commit à 60s+, round-trip peu fiable) — cf. `docs/ARCHITECTURE.md` §5.
 - Ajouter un provider (Google Drive, Dropbox, …) = un nouveau module dans `crates/providers/src/` implémentant `StorageProvider` + `ProviderAuth`, plus un bras dans `ProviderId`/`make_client`/`make_auth` (Rust) et dans `PROVIDERS` (`src/lib/providers.ts`) — pas de nouveau crate sauf si ce provider a une dépendance système (cf. `docs/ARCHITECTURE.md` §15 et la conception dans les décisions d'architecture).

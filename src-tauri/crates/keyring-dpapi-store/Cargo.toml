@@ -1,0 +1,10 @@
+[package]
+name = "keyring-dpapi-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+keyring-core = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-dpapi = "0.2"

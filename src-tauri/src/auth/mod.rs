@@ -21,7 +21,7 @@ impl AuthStore {
         Self { active: None }
     }
 
-    /// Restore token from OS keychain on startup.
+    /// Restore token from the credential store on startup.
     pub fn load_from_keychain(&mut self) -> Result<bool> {
         let entry = Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
 
@@ -39,20 +39,17 @@ impl AuthStore {
         }
     }
 
-    /// Persist token to OS keychain and keep it in memory.
+    /// Persist token to the credential store and keep it in memory.
     pub fn save(&mut self, provider: ProviderId, credentials: StoredCredentials) -> Result<()> {
-        Entry::new(KEYRING_SERVICE, KEYRING_USER)?.set_password(
-            &serde_json::to_string(&StoredAuth {
-                provider,
-                credentials: credentials.clone(),
-            })
-            .unwrap(),
-        )?;
-
-        self.active = Some(StoredAuth {
+        let active = StoredAuth {
             provider,
             credentials,
-        });
+        };
+
+        Entry::new(KEYRING_SERVICE, KEYRING_USER)?
+            .set_password(&serde_json::to_string(&active).unwrap())?;
+
+        self.active = Some(active);
 
         Ok(())
     }
@@ -64,6 +61,7 @@ impl AuthStore {
             Err(e) => return Err(e.into()),
         }
         self.active = None;
+
         Ok(())
     }
 
@@ -79,6 +77,19 @@ impl AuthStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, Once};
+
+    static INIT: Once = Once::new();
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// `AuthStore` always targets the same fixed `<service, user>` pair, and the mock
+    /// store is process-global, so tests that touch the keyring must run one at a time.
+    fn lock_mock_store() -> std::sync::MutexGuard<'static, ()> {
+        INIT.call_once(|| {
+            keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
+        });
+        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     fn sample_credentials() -> StoredCredentials {
         StoredCredentials {
@@ -97,26 +108,42 @@ mod tests {
     }
 
     #[test]
-    fn token_set_directly_authenticates() {
+    fn missing_credential_load_returns_false() {
+        let _guard = lock_mock_store();
         let mut store = AuthStore::new();
-        store.active = Some(StoredAuth {
-            provider: ProviderId::PCloud,
-            credentials: sample_credentials(),
-        });
+        let _ = store.clear(); // clean slate regardless of test execution order
 
-        assert_eq!(store.active_provider(), Some(ProviderId::PCloud));
-        assert_eq!(store.credentials(), Some(&sample_credentials()));
+        assert!(!store.load_from_keychain().unwrap());
+        assert_eq!(store.active_provider(), None);
+    }
+
+    #[test]
+    fn save_and_reload_round_trip() {
+        let _guard = lock_mock_store();
+        let mut store = AuthStore::new();
+        store
+            .save(ProviderId::PCloud, sample_credentials())
+            .unwrap();
+
+        let mut reopened = AuthStore::new();
+        assert!(reopened.load_from_keychain().unwrap());
+        assert_eq!(reopened.active_provider(), Some(ProviderId::PCloud));
+        assert_eq!(reopened.credentials(), Some(&sample_credentials()));
+
+        reopened.clear().unwrap();
     }
 
     #[test]
     fn cleared_token_is_unauthenticated() {
+        let _guard = lock_mock_store();
         let mut store = AuthStore::new();
-        store.active = Some(StoredAuth {
-            provider: ProviderId::PCloud,
-            credentials: sample_credentials(),
-        });
-        store.active = None;
+        store
+            .save(ProviderId::PCloud, sample_credentials())
+            .unwrap();
+
+        store.clear().unwrap();
 
         assert_eq!(store.active_provider(), None);
+        assert!(!store.load_from_keychain().unwrap());
     }
 }
