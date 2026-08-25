@@ -103,6 +103,7 @@ export default function App() {
                 ) : (
                   <ConnectScreen
                     startAtFolder={state === 'no-methods'}
+                    provider={connectedProvider}
                     onConnected={() => setState('ready')}
                   />
                 )}

@@ -29,7 +29,9 @@ export default function FolderPicker({
   const [state, setState] = useState<State>('browse');
   const [path, setPath] = useState<string>('/');
   // crumbs[0] is always root. The current folder is the last crumb.
-  const [crumbs, setCrumbs] = useState<Crumb[]>([{ id: '0', name: PROVIDERS[provider].label }]);
+  const [crumbs, setCrumbs] = useState<Crumb[]>([
+    { id: PROVIDERS[provider].rootId, name: PROVIDERS[provider].label },
+  ]);
   const [entries, setEntries] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

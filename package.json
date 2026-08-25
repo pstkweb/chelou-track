@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@coderline/alphatab-vite": "^1.8.3",
+    "@icons-pack/react-simple-icons": "^13.15.1",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-process": "^2.3.1",

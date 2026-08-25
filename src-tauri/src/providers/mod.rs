@@ -1,29 +1,34 @@
 use anyhow::Result;
 use chelou_providers::{
+    dropbox::{DropboxAuth, DropboxClient},
     pcloud::{PCloudAuth, PCloudClient},
-    FolderContents, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
+    Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
 };
 
 pub enum ProviderClient {
     PCloud(chelou_providers::pcloud::PCloudClient),
+    Dropbox(chelou_providers::dropbox::DropboxClient),
 }
 
 impl StorageProvider for ProviderClient {
     fn provider_id(&self) -> ProviderId {
         match self {
             Self::PCloud(c) => c.provider_id(),
+            Self::Dropbox(c) => c.provider_id(),
         }
     }
 
-    async fn list_folder(&self, folder_id: &str) -> Result<FolderContents> {
+    async fn list_folder(&self, folder_id: &str) -> Result<Vec<Entry>> {
         match self {
             Self::PCloud(c) => c.list_folder(folder_id).await,
+            Self::Dropbox(c) => c.list_folder(folder_id).await,
         }
     }
 
     async fn resolve_download_url(&self, file_id: &str, transcoded: bool) -> Result<String> {
         match self {
             Self::PCloud(c) => c.resolve_download_url(file_id, transcoded).await,
+            Self::Dropbox(c) => c.resolve_download_url(file_id, transcoded).await,
         }
     }
 }
@@ -33,17 +38,22 @@ pub fn make_client(provider: ProviderId, creds: &StoredCredentials) -> Result<Pr
         ProviderId::PCloud => Ok(ProviderClient::PCloud(PCloudClient::new(
             creds.access_token.clone(),
         )?)),
+        ProviderId::Dropbox => Ok(ProviderClient::Dropbox(DropboxClient::new(
+            creds.access_token.clone(),
+        )?)),
     }
 }
 
 pub enum ProviderAuthClient {
     PCloud(chelou_providers::pcloud::PCloudAuth),
+    Dropbox(chelou_providers::dropbox::DropboxAuth),
 }
 
 impl ProviderAuth for ProviderAuthClient {
     fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String {
         match self {
             Self::PCloud(a) => a.authorize_url(client_id, redirect_uri),
+            Self::Dropbox(a) => a.authorize_url(client_id, redirect_uri),
         }
     }
 
@@ -59,6 +69,10 @@ impl ProviderAuth for ProviderAuthClient {
                 a.exchange_code(code, redirect_uri, client_id, client_secret)
                     .await
             }
+            Self::Dropbox(a) => {
+                a.exchange_code(code, redirect_uri, client_id, client_secret)
+                    .await
+            }
         }
     }
 
@@ -70,6 +84,7 @@ impl ProviderAuth for ProviderAuthClient {
     ) -> Result<StoredCredentials> {
         match self {
             Self::PCloud(a) => a.refresh(creds, client_id, client_secret).await,
+            Self::Dropbox(a) => a.refresh(creds, client_id, client_secret).await,
         }
     }
 }
@@ -77,5 +92,6 @@ impl ProviderAuth for ProviderAuthClient {
 pub fn make_auth(provider: ProviderId) -> ProviderAuthClient {
     match provider {
         ProviderId::PCloud => ProviderAuthClient::PCloud(PCloudAuth),
+        ProviderId::Dropbox => ProviderAuthClient::Dropbox(DropboxAuth),
     }
 }

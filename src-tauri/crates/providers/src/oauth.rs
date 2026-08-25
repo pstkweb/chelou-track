@@ -52,10 +52,16 @@ pub async fn wait_for_token(session: LoopbackSession) -> Result<String> {
         .ok_or_else(|| anyhow!("OAuth callback missing code: {request_line}"))?;
 
     // Respond so the browser tab closes cleanly.
-    let html = "<html><body style='font-family:sans-serif;padding:2rem'>\
-        <h2>Connexion r\u{00e9}ussie \u{2713}</h2>\
-        <p>Vous pouvez fermer cet onglet et revenir sur Chelou Track.</p>\
-        </body></html>";
+    let html = r#"<!doctype html><html lang="fr"><meta charset="utf-8"><title>Connexion réussie — Chelou Track</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet"><style>
+:root{--bg:#0a0b0d;--card:#101216;--line:rgba(255,255,255,.08);--fg:#e7eaee;--fg2:#8b939d;--fg3:#565d66;--accent:#c8f24a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--fg);font:400 15px/1.6 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.c{width:min(400px,100%);background:var(--card);border:1px solid var(--line);border-radius:5px;box-shadow:0 12px 36px rgba(0,0,0,.6);padding:34px 30px;text-align:center}
+.b{width:52px;height:52px;margin:0 auto 20px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#0a0b0d}
+h1{font:700 25px/1.1 "Space Grotesk",system-ui,sans-serif;letter-spacing:-.01em;margin:0 0 8px}
+p{color:var(--fg2);margin:0;font-size:13.5px}
+.k{display:block;margin-top:24px;padding-top:16px;border-top:1px solid var(--line);color:var(--fg3);font:400 11px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
+</style><div class="c"><div class="b"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><h1>Connexion réussie</h1><p>Tu peux fermer cet onglet et revenir sur Chelou&nbsp;Track.</p><span class="k">Chelou Track · OAuth 2.0</span></div></html>"#;
 
     let _ = reader
         .get_mut()

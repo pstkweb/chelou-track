@@ -2,9 +2,7 @@
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
 use anyhow::{anyhow, Result};
 use chelou_providers::oauth::{bind_loopback, wait_for_token};
-use chelou_providers::{
-    FolderContents, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
-};
+use chelou_providers::{Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -28,6 +26,14 @@ const PCLOUD_CLIENT_ID: &str = match option_env!("PCLOUD_CLIENT_ID") {
     None => "",
 };
 const PCLOUD_CLIENT_SECRET: &str = match option_env!("PCLOUD_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
+const DROPBOX_CLIENT_ID: &str = match option_env!("DROPBOX_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const DROPBOX_CLIENT_SECRET: &str = match option_env!("DROPBOX_CLIENT_SECRET") {
     Some(v) => v,
     None => "",
 };
@@ -55,8 +61,9 @@ pub struct AppState {
 /// background for the callback. On success emits `oauth:complete`; on error `oauth:error`.
 #[tauri::command]
 pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<(), String> {
+    let (client_id, client_secret) = client_credentials(provider);
     let session = bind_loopback().await.map_err(|e| e.to_string())?;
-    let auth_url = make_auth(provider).authorize_url(PCLOUD_CLIENT_ID, &session.redirect_uri);
+    let auth_url = make_auth(provider).authorize_url(client_id, &session.redirect_uri);
 
     open::that(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
 
@@ -68,8 +75,8 @@ pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<
         .exchange_code(
             token.as_ref().map_err(|e| e.to_string())?,
             &redirect_uri,
-            PCLOUD_CLIENT_ID,
-            PCLOUD_CLIENT_SECRET,
+            client_id,
+            client_secret,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -108,7 +115,7 @@ pub async fn list_folder(
     state: State<'_, AppState>,
     provider: ProviderId,
     folder_id: String,
-) -> Result<FolderContents, String> {
+) -> Result<Vec<Entry>, String> {
     let credentials = get_or_refresh_credentials(state)
         .await
         .map_err(|e| e.to_string())?;
@@ -225,13 +232,16 @@ pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<St
     };
 
     if credentials.expires_at.is_some_and(|exp| {
-        exp < SystemTime::now()
+        exp < (SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64
+            .as_secs() as i64)
+            .try_into()
+            .unwrap()
     }) {
+        let (client_id, client_secret) = client_credentials(provider);
         let refreshed = make_auth(provider)
-            .refresh(&credentials, PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET)
+            .refresh(&credentials, client_id, client_secret)
             .await?;
 
         state
@@ -244,4 +254,11 @@ pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<St
     }
 
     Ok(credentials)
+}
+
+fn client_credentials(provider: ProviderId) -> (&'static str, &'static str) {
+    match provider {
+        ProviderId::PCloud => (PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET),
+        ProviderId::Dropbox => (DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET),
+    }
 }

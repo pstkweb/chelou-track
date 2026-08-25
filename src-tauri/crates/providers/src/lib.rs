@@ -2,18 +2,12 @@ pub mod scanner;
 use std::{fmt::Display, str::FromStr};
 
 pub use scanner::{scan_methods_in_folder, ScanEvent};
+pub mod dropbox;
 pub mod oauth;
 pub mod pcloud;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize)]
-pub struct FolderContents {
-    pub id: String,
-    pub name: String,
-    pub contents: Vec<Entry>,
-}
 
 #[derive(Debug, Serialize)]
 pub struct Entry {
@@ -77,12 +71,15 @@ impl Entry {
 pub enum ProviderId {
     #[serde(rename = "pcloud")]
     PCloud,
+    #[serde(rename = "dropbox")]
+    Dropbox,
 }
 
 impl Display for ProviderId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             ProviderId::PCloud => "pcloud",
+            ProviderId::Dropbox => "dropbox",
         })
     }
 }
@@ -93,6 +90,8 @@ impl FromStr for ProviderId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "pcloud" => Ok(ProviderId::PCloud),
+            "dropbox" => Ok(ProviderId::Dropbox),
+
             _ => anyhow::bail!("unknown provider id: {s}"),
         }
     }
@@ -104,7 +103,7 @@ pub trait StorageProvider: Send + Sync {
     fn list_folder(
         &self,
         folder_id: &str,
-    ) -> impl std::future::Future<Output = Result<FolderContents>> + Send;
+    ) -> impl std::future::Future<Output = Result<Vec<Entry>>> + Send;
 
     fn resolve_download_url(
         &self,
@@ -135,7 +134,7 @@ pub trait ProviderAuth {
 pub struct StoredCredentials {
     pub access_token: String,
     pub refresh_token: Option<String>,
-    pub expires_at: Option<i64>,
+    pub expires_at: Option<u64>,
 }
 
 pub struct RangeResponse {

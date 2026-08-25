@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{Entry, FolderContents, ProviderAuth, ProviderId, StorageProvider};
+use crate::{Entry, ProviderAuth, ProviderId, StorageProvider};
 
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
@@ -59,7 +59,7 @@ impl StorageProvider for PCloudClient {
         ProviderId::PCloud
     }
 
-    async fn list_folder(&self, folder_id: &str) -> Result<FolderContents> {
+    async fn list_folder(&self, folder_id: &str) -> Result<Vec<Entry>> {
         let id: u64 = folder_id.parse()?;
         let folder = self
             .client
@@ -67,7 +67,12 @@ impl StorageProvider for PCloudClient {
             .await
             .map_err(|e| anyhow!("listfolder: {e}"))?;
 
-        Ok(map_folder(folder))
+        Ok(folder
+            .contents
+            .unwrap_or_default()
+            .into_iter()
+            .map(map_entry)
+            .collect())
     }
 
     async fn resolve_download_url(&self, file_id: &str, transcoded: bool) -> Result<String> {
@@ -78,19 +83,6 @@ impl StorageProvider for PCloudClient {
         } else {
             self.get_file_link(id).await
         }
-    }
-}
-
-fn map_folder(folder: pcloud::folder::Folder) -> FolderContents {
-    FolderContents {
-        id: folder.folder_id.to_string(),
-        name: folder.base.name,
-        contents: folder
-            .contents
-            .unwrap_or_default()
-            .into_iter()
-            .map(map_entry)
-            .collect(),
     }
 }
 
@@ -278,27 +270,5 @@ mod tests {
         assert_eq!(entry.name, "02 Solo");
         assert!(entry.is_folder);
         assert_eq!(entry.id, "99");
-    }
-
-    #[test]
-    fn map_folder_propagates_name_and_contents() {
-        let json = format!(
-            r#"{{
-                {ENTRY_BASE},
-                "name": "Méthode A", "isfolder": true, "folderid": 7,
-                "contents": [
-                    {{ {ENTRY_BASE}, "name": "lesson.mp4", "fileid": 1 }},
-                    {{ {ENTRY_BASE}, "name": "sub", "isfolder": true, "folderid": 8 }}
-                ]
-            }}"#
-        );
-        let crate_folder: pcloud::folder::Folder = serde_json::from_str(&json).unwrap();
-        let fc = map_folder(crate_folder);
-
-        assert_eq!(fc.name, "Méthode A");
-        assert_eq!(fc.id, "7");
-        assert_eq!(fc.contents.len(), 2);
-        assert!(fc.contents[0].is_video());
-        assert!(fc.contents[1].is_folder);
     }
 }

@@ -32,30 +32,24 @@ pub struct ScanEvent {
 pub async fn scan_tree<P: StorageProvider>(
     client: &P,
     root_folder_id: &str,
+    root_folder_name: &str,
     on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
 ) -> Result<Method> {
-    let root = client.list_folder(root_folder_id).await?;
+    let contents = client.list_folder(root_folder_id).await?;
 
     on_progress(ScanEvent {
-        current_folder: root.name.clone(),
+        current_folder: root_folder_name.to_string(),
         folders_visited: 0,
         methods_found: 0,
     });
 
     let mut global_order = 0u32;
-    let (items, documents) = scan_folder_contents(
-        client,
-        &root.contents,
-        &[],
-        &[],
-        &mut global_order,
-        &on_progress,
-    )
-    .await?;
+    let (items, documents) =
+        scan_folder_contents(client, &contents, &[], &[], &mut global_order, &on_progress).await?;
 
     Ok(Method {
         id: Uuid::new_v4().to_string(),
-        title: root.name,
+        title: root_folder_name.to_string(),
         source: MethodSource {
             provider: client.provider_id().to_string(),
             root_folder_id: root_folder_id.to_string(),
@@ -73,10 +67,9 @@ pub async fn scan_methods_in_folder<P: StorageProvider>(
     root_folder_id: &str,
     on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync>,
 ) -> Result<Vec<Method>> {
-    let root = client.list_folder(root_folder_id).await?;
+    let contents = client.list_folder(root_folder_id).await?;
 
-    let mut subfolders: Vec<(String, String)> = root
-        .contents
+    let mut subfolders: Vec<(String, String)> = contents
         .into_iter()
         .filter(|e| e.is_folder && !e.name.to_lowercase().starts_with("archive"))
         .map(|e| (e.id, e.name))
@@ -89,7 +82,7 @@ pub async fn scan_methods_in_folder<P: StorageProvider>(
     let folders_visited = Arc::new(AtomicU32::new(0));
     let mut methods_found = 0u32;
 
-    for (folder_id, _) in subfolders {
+    for (folder_id, folder_name) in subfolders {
         let prog = Arc::clone(&on_progress);
         let fv = Arc::clone(&folders_visited);
         let mf = methods_found;
@@ -102,7 +95,7 @@ pub async fn scan_methods_in_folder<P: StorageProvider>(
             });
         });
 
-        let method = scan_tree(client, &folder_id, wrapped).await?;
+        let method = scan_tree(client, &folder_id, &folder_name, wrapped).await?;
         if method.has_lessons() {
             methods_found += 1;
         }
@@ -155,7 +148,6 @@ async fn scan_folder_contents<P: StorageProvider>(
                 let id = entry.id.clone();
                 let sub = client.list_folder(&id).await?;
                 let sub_tab_stems: HashSet<String> = sub
-                    .contents
                     .iter()
                     .filter(|e| e.is_tab())
                     .map(|e| file_stem(&e.name))
@@ -163,7 +155,7 @@ async fn scan_folder_contents<P: StorageProvider>(
 
                 special_ids.insert(id);
 
-                for e in &sub.contents {
+                for e in &sub {
                     if e.is_folder {
                         continue;
                     } else if e.is_audio() {
@@ -190,7 +182,7 @@ async fn scan_folder_contents<P: StorageProvider>(
 
                 special_ids.insert(id);
 
-                for e in &sub.contents {
+                for e in &sub {
                     if e.is_folder {
                         continue;
                     } else if e.is_pdf() {
@@ -242,13 +234,13 @@ async fn scan_folder_contents<P: StorageProvider>(
             // Regular folder → recurse as a Section.
             let sub = client.list_folder(&sub_id).await?;
             on_progress(ScanEvent {
-                current_folder: sub.name.clone(),
+                current_folder: entry.name.clone(),
                 folders_visited: 0,
                 methods_found: 0,
             });
             let (sub_items, sub_docs) = scan_folder_contents(
                 client,
-                &sub.contents,
+                &sub,
                 &local_backing,
                 &local_tabs,
                 global_order,
@@ -428,7 +420,10 @@ fn ext_of(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_section_title, parse_bpm, radical_of};
+    use super::{clean_section_title, parse_bpm, radical_of, scan_methods_in_folder, ScanEvent};
+    use crate::{Entry, ProviderId, StorageProvider};
+    use anyhow::Result;
+    use std::sync::Arc;
 
     #[test]
     fn strips_chap_prefix() {
@@ -492,5 +487,57 @@ mod tests {
     fn parse_bpm_ignores_case() {
         assert_eq!(parse_bpm("BT CLAQUE 60BPM.wav"), 60);
         assert_eq!(parse_bpm("Star'nStop 1 galop 140BPM.wav"), 140);
+    }
+
+    // --- scan_methods_in_folder ---
+
+    /// Two subfolders under "root", each with one video so it becomes a Method with lessons.
+    struct MockProvider;
+
+    impl StorageProvider for MockProvider {
+        fn provider_id(&self) -> ProviderId {
+            ProviderId::PCloud
+        }
+
+        async fn list_folder(&self, folder_id: &str) -> Result<Vec<Entry>> {
+            let raw: Vec<(&str, &str, bool)> = match folder_id {
+                "root" => vec![
+                    ("sub-a", "A - Premiere Partie", true),
+                    ("sub-b", "B - Deuxieme Partie", true),
+                ],
+                "sub-a" => vec![("video-a", "01 Intro.mp4", false)],
+                "sub-b" => vec![("video-b", "01 Intro.mp4", false)],
+                _ => vec![],
+            };
+
+            Ok(raw
+                .into_iter()
+                .map(|(id, name, is_folder)| Entry {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    is_folder,
+                    size: None,
+                })
+                .collect())
+        }
+
+        async fn resolve_download_url(&self, _file_id: &str, _transcoded: bool) -> Result<String> {
+            Ok(String::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_methods_in_folder_names_each_method_after_its_own_subfolder() {
+        let on_progress: Arc<dyn Fn(ScanEvent) + Send + Sync> = Arc::new(|_| {});
+
+        let methods = scan_methods_in_folder(&MockProvider, "root", on_progress)
+            .await
+            .unwrap();
+
+        assert_eq!(methods.len(), 2);
+        // Regression guard: each Method must be titled after its own subfolder,
+        // not after the root folder passed into scan_methods_in_folder.
+        assert_eq!(methods[0].title, "A - Premiere Partie");
+        assert_eq!(methods[1].title, "B - Deuxieme Partie");
     }
 }

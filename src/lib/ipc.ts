@@ -18,7 +18,7 @@ export async function getAuthStatus(): Promise<Provider | null> {
   return invoke('get_auth_status');
 }
 
-// --- pCloud folder browsing ---
+// --- folder browsing ---
 
 export interface FolderEntry {
   name: string;
@@ -33,10 +33,12 @@ export interface ScanProgressEvent {
 
 /** Returns only the sub-folder children of the given folder (files are filtered out). */
 export async function listFolder(provider: Provider, folderId: string): Promise<FolderEntry[]> {
-  const result: { contents: Array<{ id: string; name: string; is_folder: boolean }> } =
-    await invoke('list_folder', { provider, folderId });
+  const entries: Array<{ id: string; name: string; is_folder: boolean }> = await invoke(
+    'list_folder',
+    { provider, folderId },
+  );
 
-  return result.contents.filter((e) => e.is_folder).map((e) => ({ name: e.name, folderid: e.id }));
+  return entries.filter((e) => e.is_folder).map((e) => ({ name: e.name, folderid: e.id }));
 }
 
 // --- Catalogue / manifest ---
