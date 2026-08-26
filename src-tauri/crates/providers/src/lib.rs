@@ -3,8 +3,11 @@ use std::{fmt::Display, str::FromStr};
 
 pub use scanner::{scan_methods_in_folder, ScanEvent};
 pub mod dropbox;
+pub mod gdrive;
 pub mod oauth;
 pub mod pcloud;
+pub mod registry;
+pub use registry::{make_auth, make_client, ProviderAuthClient, ProviderClient};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -73,6 +76,8 @@ pub enum ProviderId {
     PCloud,
     #[serde(rename = "dropbox")]
     Dropbox,
+    #[serde(rename = "gdrive")]
+    GoogleDrive,
 }
 
 impl Display for ProviderId {
@@ -80,6 +85,7 @@ impl Display for ProviderId {
         f.write_str(match self {
             ProviderId::PCloud => "pcloud",
             ProviderId::Dropbox => "dropbox",
+            ProviderId::GoogleDrive => "gdrive",
         })
     }
 }
@@ -91,14 +97,35 @@ impl FromStr for ProviderId {
         match s {
             "pcloud" => Ok(ProviderId::PCloud),
             "dropbox" => Ok(ProviderId::Dropbox),
-
+            "gdrive" => Ok(ProviderId::GoogleDrive),
             _ => anyhow::bail!("unknown provider id: {s}"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DownloadTarget {
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+}
+
+impl DownloadTarget {
+    pub fn url_only(url: String) -> Self {
+        Self {
+            url,
+            headers: Vec::new(),
         }
     }
 }
 
 pub trait StorageProvider: Send + Sync {
     fn provider_id(&self) -> ProviderId;
+
+    // Almost every provider will provide download URL generation so we can enable this by default
+    // to skip this call when possible
+    fn is_cacheable(&self) -> bool {
+        true
+    }
 
     fn list_folder(
         &self,
@@ -109,7 +136,7 @@ pub trait StorageProvider: Send + Sync {
         &self,
         file_id: &str,
         transcoded: bool,
-    ) -> impl std::future::Future<Output = Result<String>> + Send;
+    ) -> impl std::future::Future<Output = Result<DownloadTarget>> + Send;
 }
 pub trait ProviderAuth {
     fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String;
@@ -146,10 +173,14 @@ pub struct RangeResponse {
 
 pub async fn fetch_range(
     http: &reqwest::Client,
-    url: &str,
+    target: &DownloadTarget,
     range_header: Option<&str>,
 ) -> Result<RangeResponse> {
-    let mut req = http.get(url);
+    let mut req = http.get(&target.url);
+
+    for (key, value) in &target.headers {
+        req = req.header(key, value);
+    }
 
     if let Some(r) = range_header {
         req = req.header("Range", r);

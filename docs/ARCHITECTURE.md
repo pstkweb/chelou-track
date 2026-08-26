@@ -33,12 +33,13 @@ Electron a été explicitement écarté.
 
 1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout passe
    par le backend Rust. C'est une exigence de sécurité **appliquée uniformément à tous les
-   providers** (pCloud aujourd'hui ; Google Drive, Dropbox et autres potentiellement demain,
-   cf. décisions d'architecture multi-provider) — pas seulement une conséquence de la contrainte
-   2 ci-dessous. L'IP-binding pCloud (contrainte 2) est une raison suffisante pour pCloud, mais
-   ce n'est pas *la* raison de la règle : même un provider sans cette contrainte technique
-   (Google Drive et Dropbox n'ont pas d'IP-binding sur leurs liens temporaires) doit passer par
-   le même chemin, par cohérence et pour garder le token hors du WebView dans tous les cas.
+   providers** (pCloud, Dropbox et Google Drive aujourd'hui, cf. §14) — pas seulement une
+   conséquence de la contrainte 2 ci-dessous. L'IP-binding pCloud (contrainte 2) est une raison
+   suffisante pour pCloud, mais ce n'est pas *la* raison de la règle : même un provider sans
+   cette contrainte technique doit passer par le même chemin, par cohérence et pour garder le
+   token hors du WebView dans tous les cas. Dropbox n'a pas d'IP-binding sur son lien temporaire
+   mais en a un ; **Google Drive n'a même pas de lien temporaire du tout** — `alt=media` exige un
+   header `Authorization` à chaque requête, cf. §14.
 2. **Les liens pCloud sont liés à l'IP qui les génère** et leur referer est restreint à
    `pcloud.com` (une appli web qui les consomme directement reçoit `Invalid link referer`
    + erreurs CORS). Conséquence : c'est **Rust** qui génère ET consomme le lien, sur la même
@@ -302,6 +303,40 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
 - **API protocole custom Tauri v2** (`register_asynchronous_uri_scheme_protocol` et son support
   des Range) contre la version de Tauri installée.
 - Codec vidéo réel (seulement si un échec de décodage survient — sinon non pertinent).
+
+## 14. Multi-provider — pCloud / Dropbox / Google Drive
+
+Chaque provider implémente les traits `StorageProvider`/`ProviderAuth` (`chelou-providers`,
+un module par provider : `pcloud.rs`, `dropbox.rs`, `gdrive.rs`). Deux points où Google Drive
+force une abstraction plus large que ce que pCloud/Dropbox seuls auraient suggéré :
+
+- **`resolve_download_url` renvoie un `DownloadTarget { url, headers }`, pas une simple
+  `String`.** pCloud (`getfilelink`/`getvideolink`) et Dropbox (`get_temporary_link`) renvoient
+  un lien temporaire pré-signé, consommable tel quel sans en-tête (`headers: vec![]`) — c'est ce
+  lien que `fetch_range` (§4) suit avec les requêtes Range. **Google Drive n'a pas d'équivalent** :
+  `GET /files/{fileId}?alt=media` est une URL fixe qui exige un header `Authorization: Bearer`
+  sur *chaque* requête, y compris chaque chunk Range. `GDriveClient::resolve_download_url` ne
+  fait donc aucun appel réseau — il construit l'URL depuis le seul `fileId` et attache le token
+  courant dans `headers`.
+- **Le cache d'URL (`url_cache` dans `stream/mod.rs`) est bypassé pour Google Drive.** Sa raison
+  d'être est d'éviter un aller-retour réseau coûteux (`getfilelink`/`get_temporary_link`) répété à
+  chaque chunk — round-trip que Google Drive ne fait pas (point précédent). Le cacher quand même
+  risquerait de resservir, jusqu'à `URL_TTL` (10 min), un header `Authorization` déjà remplacé par
+  `get_or_refresh_credentials` (appelé, lui, à chaque requête) : un token tourné mais pas encore
+  expiré resterait invisible pour le provider tant que l'entrée de cache n'a pas expiré.
+
+Autres divergences, mineures, par provider :
+
+- **Racine du scan (`rootId`, `src/lib/providers.ts`)** : pCloud `'0'` (id numérique racine de
+  l'API), Dropbox `''` (chemin vide = racine dans l'API Dropbox), Google Drive `'root'` — alias
+  documenté par l'API Drive utilisable directement dans une requête `'{id}' in parents`, pas une
+  simple chaîne vide.
+- **OAuth Google Drive** : client enregistré en **Desktop app** (Google Cloud Console) plutôt
+  qu'en Web application — ce type autorise nativement le flow loopback (RFC 8252) sur n'importe
+  quel port `localhost`, sans avoir à lister chaque port comme pour pCloud/Dropbox. Scope minimal
+  `drive.readonly` : le scan (§6) parcourt une arborescence existante appartenant à l'utilisateur,
+  ce que ne permet pas `drive.file` (limité aux fichiers créés par l'app ou choisis via un
+  Google Picker).
 
 ## 15. Stratégie de tests
 

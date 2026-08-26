@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{Entry, ProviderAuth, ProviderId, StorageProvider};
+use crate::{DownloadTarget, Entry, ProviderAuth, ProviderId, StorageProvider};
 
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
@@ -75,7 +75,11 @@ impl StorageProvider for PCloudClient {
             .collect())
     }
 
-    async fn resolve_download_url(&self, file_id: &str, transcoded: bool) -> Result<String> {
+    async fn resolve_download_url(
+        &self,
+        file_id: &str,
+        transcoded: bool,
+    ) -> Result<DownloadTarget> {
         let id: u64 = file_id.parse()?;
 
         if transcoded {
@@ -83,6 +87,7 @@ impl StorageProvider for PCloudClient {
         } else {
             self.get_file_link(id).await
         }
+        .map(DownloadTarget::url_only)
     }
 }
 

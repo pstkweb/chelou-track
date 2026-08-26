@@ -421,7 +421,7 @@ fn ext_of(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{clean_section_title, parse_bpm, radical_of, scan_methods_in_folder, ScanEvent};
-    use crate::{Entry, ProviderId, StorageProvider};
+    use crate::{DownloadTarget, Entry, ProviderId, StorageProvider};
     use anyhow::Result;
     use std::sync::Arc;
 
@@ -521,8 +521,12 @@ mod tests {
                 .collect())
         }
 
-        async fn resolve_download_url(&self, _file_id: &str, _transcoded: bool) -> Result<String> {
-            Ok(String::new())
+        async fn resolve_download_url(
+            &self,
+            _file_id: &str,
+            _transcoded: bool,
+        ) -> Result<DownloadTarget> {
+            Ok(DownloadTarget::url_only(String::new()))
         }
     }
 

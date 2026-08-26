@@ -1,6 +1,6 @@
 // stream:// custom URI scheme handler.
 // cf. ARCHITECTURE.md §4 — Rust generates AND consumes pCloud links (same IP = IP-binding solved).
-use chelou_providers::{fetch_range, ProviderId, StorageProvider};
+use chelou_providers::{fetch_range, DownloadTarget, ProviderId, StorageProvider};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
@@ -51,7 +51,7 @@ async fn handle_inner<R: Runtime>(
     let client = make_client(req.provider, &credentials)?;
 
     let use_video_link = matches!(req.kind, StreamKind::Video) && req.transcoded;
-    let pcloud_url = resolve_url(&state, req.file_id, use_video_link, &client).await?;
+    let download_target = resolve_url(&state, req.file_id, use_video_link, &client).await?;
 
     let range_header = request
         .headers()
@@ -64,7 +64,7 @@ async fn handle_inner<R: Runtime>(
     const CHUNK: u64 = 1024 * 1024;
     let effective_range = cap_range(range_header.as_deref(), CHUNK).or(range_header);
 
-    let resp = fetch_range(&state.http, pcloud_url.as_str(), effective_range.as_deref()).await?;
+    let resp = fetch_range(&state.http, &download_target, effective_range.as_deref()).await?;
 
     let mut builder = tauri::http::Response::builder()
         .status(resp.status)
@@ -82,14 +82,22 @@ async fn handle_inner<R: Runtime>(
 // --- URL cache ---
 const URL_TTL: Duration = Duration::from_secs(600); // pCloud links are valid ~15 min; we refresh at 10
 
-/// Return a cached pCloud download URL for `file_id`, refreshing if older than URL_TTL.
-/// Eliminates one getfilelink API round-trip per Range chunk during media playback.
+/// Return a cached download URL for `file_id`, refreshing if older than URL_TTL.
+/// Eliminates one API round-trip per Range chunk during media playback.
 async fn resolve_url(
     state: &AppState,
     file_id: String,
     use_video_link: bool,
     client: &crate::providers::ProviderClient,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<DownloadTarget> {
+    // GDrive bakes the live OAuth access token into DownloadTarget.headers, and costs no
+    // network round-trip to resolve (unlike pCloud/Dropbox's getfilelink/get_temporary_link).
+    // Caching it would risk serving an Authorization header for a token already rotated out
+    // by get_or_refresh_credentials, for up to URL_TTL — always resolve fresh instead.
+    if !client.is_cacheable() {
+        return client.resolve_download_url(&file_id, use_video_link).await;
+    }
+
     // Check cache — drop the lock before any await.
     let cached = {
         let cache = state.url_cache.lock().unwrap();
@@ -109,6 +117,7 @@ async fn resolve_url(
         (client.provider_id(), file_id.clone(), use_video_link),
         (url.clone(), std::time::Instant::now()),
     );
+
     Ok(url)
 }
 

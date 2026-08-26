@@ -2,7 +2,9 @@
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
 use anyhow::{anyhow, Result};
 use chelou_providers::oauth::{bind_loopback, wait_for_token};
-use chelou_providers::{Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials};
+use chelou_providers::{
+    DownloadTarget, Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -37,20 +39,28 @@ const DROPBOX_CLIENT_SECRET: &str = match option_env!("DROPBOX_CLIENT_SECRET") {
     Some(v) => v,
     None => "",
 };
+const GDRIVE_CLIENT_ID: &str = match option_env!("GDRIVE_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const GDRIVE_CLIENT_SECRET: &str = match option_env!("GDRIVE_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
 
 use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
 use crate::providers::{make_auth, make_client};
 
 type UrlCacheKey = (ProviderId, String, bool);
-type UrlCacheEntry = (String, Instant);
+type UrlCacheEntry = (DownloadTarget, Instant);
 
 pub struct AppState {
     pub auth: Mutex<AuthStore>,
     pub manifest: ManifestStore,
     pub http: reqwest::Client,
-    /// Cache of pCloud download URLs: (file_id, is_video_link) → (url, fetched_at).
-    /// Avoids one getfilelink API round-trip per Range chunk during media playback.
+    /// Cache of builded download URLs: (file_id, is_video_link) → (url, fetched_at).
+    /// Avoids one API round-trip per Range chunk during media playback.
     pub url_cache: Mutex<HashMap<UrlCacheKey, UrlCacheEntry>>,
 }
 
@@ -260,5 +270,6 @@ fn client_credentials(provider: ProviderId) -> (&'static str, &'static str) {
     match provider {
         ProviderId::PCloud => (PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET),
         ProviderId::Dropbox => (DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET),
+        ProviderId::GoogleDrive => (GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET),
     }
 }
