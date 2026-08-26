@@ -22,8 +22,12 @@ jobs:
       - run: npm run ci
 
   rust-lint:
-    name: Rust lint
-    runs-on: windows-latest
+    name: Rust lint (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
     defaults:
       run:
         working-directory: src-tauri
@@ -38,6 +42,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings

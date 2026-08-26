@@ -35,6 +35,8 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "category": "Music",
+    "shortDescription": "Lecteur de méthodes de guitare : vidéos et tablatures synchronisées avec un backing track.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -44,6 +46,11 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     }
   }
 }

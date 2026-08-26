@@ -66,6 +66,42 @@ pub struct AppState {
 
 // --- Auth ---
 
+/// Opens `url` in the user's default browser.
+///
+/// On Linux, when running from an AppImage, bypasses `open::that` to strip the library/
+/// interpreter search-path env vars that AppRun prepends onto our process before the spawned
+/// opener command. AppRun leaves `LD_LIBRARY_PATH` pointing into the `/tmp/.mount-*` dir for the
+/// lifetime of our process; passing it on to `xdg-open` makes it (and whatever it execs, e.g.
+/// curl) resolve the AppImage's bundled libssl against the system's libcurl, which fails with an
+/// OpenSSL ABI mismatch. Gated on `$APPIMAGE` so .deb/.rpm/pacman installs (which never set it)
+/// go through the normal `open::that` path unchanged.
+fn open_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            let mut last_err = None;
+            for mut cmd in open::commands(url) {
+                for var in ["LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME", "PERLLIB"] {
+                    cmd.env_remove(var);
+                }
+                match cmd.status() {
+                    Ok(status) if status.success() => return Ok(()),
+                    Ok(status) => {
+                        last_err = Some(std::io::Error::other(format!(
+                            "{cmd:?} exited with {status}"
+                        )));
+                    }
+                    Err(e) => last_err = Some(e),
+                }
+            }
+            return Err(
+                last_err.unwrap_or_else(|| std::io::Error::other("no opener command succeeded"))
+            );
+        }
+    }
+    open::that(url)
+}
+
 /// Start the pCloud OAuth2 authorization code flow (RFC 8252 loopback redirect).
 /// Opens the system browser with the pCloud authorization page, then waits in the
 /// background for the callback. On success emits `oauth:complete`; on error `oauth:error`.
@@ -75,7 +111,7 @@ pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<
     let session = bind_loopback().await.map_err(|e| e.to_string())?;
     let auth_url = make_auth(provider).authorize_url(client_id, &session.redirect_uri);
 
-    open::that(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
+    open_browser(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
 
     // Block until the user completes auth in the browser or the 5-minute timeout elapses.
     let redirect_uri = session.redirect_uri.clone();
@@ -242,12 +278,13 @@ pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<St
     };
 
     if credentials.expires_at.is_some_and(|exp| {
-        exp < (SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64)
-            .try_into()
-            .unwrap()
+        exp < <i64 as std::convert::TryInto<u64>>::try_into(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        )
+        .unwrap()
     }) {
         let (client_id, client_secret) = client_credentials(provider);
         let refreshed = make_auth(provider)
