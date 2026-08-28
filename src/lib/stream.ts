@@ -1,24 +1,28 @@
 // Helpers to build stream:// URIs for the Rust protocol handler.
 // The backend resolves these to pCloud byte ranges — no URL leaks to the WebView.
 
+import { platform } from '@tauri-apps/plugin-os';
 import type { Provider } from '@/types/model';
 
-const BASE = 'http://stream.localhost';
+function base(): string {
+  const p = platform();
+  return p === 'windows' || p === 'android' ? 'http://stream.localhost' : 'stream://localhost';
+}
 
 export function videoUrl(provider: Provider, fileId: string, transcoded = false): string {
-  const base = `${BASE}/video/${provider}/${fileId}`;
+  const url = `${base()}/video/${provider}/${fileId}`;
 
-  return transcoded ? `${base}?transcoded=true` : base;
+  return transcoded ? `${url}?transcoded=true` : url;
 }
 
 export function audioUrl(provider: Provider, fileId: string): string {
-  return `${BASE}/audio/${provider}/${fileId}`;
+  return `${base()}/audio/${provider}/${fileId}`;
 }
 
 export function tabUrl(provider: Provider, fileId: string): string {
-  return `${BASE}/tab/${provider}/${fileId}`;
+  return `${base()}/tab/${provider}/${fileId}`;
 }
 
 export function docUrl(provider: Provider, fileId: string): string {
-  return `${BASE}/doc/${provider}/${fileId}`;
+  return `${base()}/doc/${provider}/${fileId}`;
 }
