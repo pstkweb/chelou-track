@@ -9,14 +9,20 @@ function base(): string {
   return p === 'windows' || p === 'android' ? 'http://stream.localhost' : 'stream://localhost';
 }
 
+const MEDIA_PORT = 47812;
+
+function mediaBase(): string {
+  return platform() === 'linux' ? `http://127.0.0.1:${MEDIA_PORT}` : base();
+}
+
 export function videoUrl(provider: Provider, fileId: string, transcoded = false): string {
-  const url = `${base()}/video/${provider}/${fileId}`;
+  const url = `${mediaBase()}/video/${provider}/${fileId}`;
 
   return transcoded ? `${url}?transcoded=true` : url;
 }
 
 export function audioUrl(provider: Provider, fileId: string): string {
-  return `${base()}/audio/${provider}/${fileId}`;
+  return `${mediaBase()}/audio/${provider}/${fileId}`;
 }
 
 export function tabUrl(provider: Provider, fileId: string): string {

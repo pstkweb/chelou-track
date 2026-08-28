@@ -1,6 +1,8 @@
 mod auth;
 mod commands;
 mod manifest;
+#[cfg(target_os = "linux")]
+mod media_server;
 mod providers;
 mod stream;
 
@@ -44,6 +46,10 @@ pub fn run() {
                 http: reqwest::Client::new(),
                 url_cache: Mutex::new(HashMap::new()),
             });
+
+            #[cfg(target_os = "linux")]
+            media_server::spawn(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

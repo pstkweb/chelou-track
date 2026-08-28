@@ -42,29 +42,17 @@ async fn handle_inner<R: Runtime>(
     let req = parse_uri(&uri).ok_or_else(|| anyhow::anyhow!("invalid stream URI: {uri}"))?;
 
     let state = app.state::<AppState>();
+    let range_header = request.headers().get("Range").and_then(|v| v.to_str().ok());
 
-    if state.auth.lock().unwrap().active_provider() != Some(req.provider) {
-        anyhow::bail!("stream request for {uri} but active provider is not {req:?}");
-    }
-
-    let credentials = get_or_refresh_credentials(state.clone()).await?;
-    let client = make_client(req.provider, &credentials)?;
-
-    let use_video_link = matches!(req.kind, StreamKind::Video) && req.transcoded;
-    let download_target = resolve_url(&state, req.file_id, use_video_link, &client).await?;
-
-    let range_header = request
-        .headers()
-        .get("Range")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_owned());
-
-    // Cap open-ended or oversized ranges so we never buffer more than 1 MB at once.
-    // The browser sees a 206 + Content-Range and issues follow-up requests automatically.
-    const CHUNK: u64 = 1024 * 1024;
-    let effective_range = cap_range(range_header.as_deref(), CHUNK).or(range_header);
-
-    let resp = fetch_range(&state.http, &download_target, effective_range.as_deref()).await?;
+    let resp = resolve_media(
+        state,
+        req.provider,
+        req.kind,
+        req.file_id,
+        req.transcoded,
+        range_header,
+    )
+    .await?;
 
     let mut builder = tauri::http::Response::builder()
         .status(resp.status)
@@ -77,6 +65,38 @@ async fn handle_inner<R: Runtime>(
     }
 
     Ok(builder.body(resp.body)?)
+}
+
+/// Resolve a media/doc request to bytes: check the active provider, get/refresh credentials,
+/// resolve (and cache) the provider download URL, then fetch the requested byte range.
+///
+/// Shared by the `stream://` handler above (all kinds, all platforms) and, on Linux only, the
+/// loopback media server in `media_server.rs` (video/audio only — cf. its module doc for why).
+pub async fn resolve_media(
+    state: tauri::State<'_, AppState>,
+    provider: ProviderId,
+    kind: StreamKind,
+    file_id: String,
+    transcoded: bool,
+    range_header: Option<&str>,
+) -> anyhow::Result<chelou_providers::RangeResponse> {
+    if state.auth.lock().unwrap().active_provider() != Some(provider) {
+        anyhow::bail!("media request for {provider:?}/{file_id} but active provider differs");
+    }
+
+    let credentials = get_or_refresh_credentials(state.clone()).await?;
+    let client = make_client(provider, &credentials)?;
+
+    let use_video_link = matches!(kind, StreamKind::Video) && transcoded;
+    let download_target = resolve_url(&state, file_id, use_video_link, &client).await?;
+
+    // Cap open-ended or oversized ranges so we never buffer more than 1 MB at once.
+    // The client sees a 206 + Content-Range and issues follow-up requests automatically.
+    const CHUNK: u64 = 1024 * 1024;
+    let effective_range =
+        cap_range(range_header, CHUNK).or_else(|| range_header.map(str::to_owned));
+
+    fetch_range(&state.http, &download_target, effective_range.as_deref()).await
 }
 
 // --- URL cache ---
