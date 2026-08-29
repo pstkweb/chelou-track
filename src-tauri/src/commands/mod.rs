@@ -50,7 +50,7 @@ const GDRIVE_CLIENT_SECRET: &str = match option_env!("GDRIVE_CLIENT_SECRET") {
 
 use crate::auth::AuthStore;
 use crate::manifest::{ManifestStore, Method};
-use crate::providers::{make_auth, make_client};
+use crate::providers::{make_auth, make_client, ProviderClient};
 
 type UrlCacheKey = (ProviderId, String, bool);
 type UrlCacheEntry = (DownloadTarget, Instant);
@@ -62,6 +62,31 @@ pub struct AppState {
     /// Cache of builded download URLs: (file_id, is_video_link) → (url, fetched_at).
     /// Avoids one API round-trip per Range chunk during media playback.
     pub url_cache: Mutex<HashMap<UrlCacheKey, UrlCacheEntry>>,
+    /// Cached `ProviderClient` for the currently active provider, keyed by access token so a
+    /// token refresh naturally invalidates it. `make_client` rebuilds the provider's whole HTTP
+    /// client from scratch (see e.g. `PCloudClient::new`), which pays a fresh
+    /// DNS+TCP+TLS-handshake cost with zero connection reuse — expensive if paid on every media
+    /// request instead of once per session/token.
+    pub client_cache: Mutex<Option<(ProviderId, String, Arc<ProviderClient>)>>,
+}
+
+/// Get (building + caching if needed) the `ProviderClient` for `provider`/`credentials`.
+/// See `AppState::client_cache` doc for why this matters.
+pub fn get_or_create_client(
+    state: &AppState,
+    provider: ProviderId,
+    credentials: &StoredCredentials,
+) -> Result<Arc<ProviderClient>> {
+    let mut cache = state.client_cache.lock().unwrap();
+    if let Some((cached_provider, cached_token, client)) = cache.as_ref() {
+        if *cached_provider == provider && cached_token == &credentials.access_token {
+            return Ok(client.clone());
+        }
+    }
+
+    let client = Arc::new(make_client(provider, credentials)?);
+    *cache = Some((provider, credentials.access_token.clone(), client.clone()));
+    Ok(client)
 }
 
 // --- Auth ---
@@ -162,10 +187,10 @@ pub async fn list_folder(
     provider: ProviderId,
     folder_id: String,
 ) -> Result<Vec<Entry>, String> {
-    let credentials = get_or_refresh_credentials(state)
+    let credentials = get_or_refresh_credentials(state.clone())
         .await
         .map_err(|e| e.to_string())?;
-    let client = make_client(provider, &credentials).map_err(|e| e.to_string())?;
+    let client = get_or_create_client(&state, provider, &credentials).map_err(|e| e.to_string())?;
 
     client
         .list_folder(folder_id.as_str())
@@ -187,16 +212,16 @@ pub async fn scan_method(
     provider: ProviderId,
     root_folder_id: String,
 ) -> Result<Vec<Method>, String> {
-    let credentials = get_or_refresh_credentials(state)
+    let credentials = get_or_refresh_credentials(state.clone())
         .await
         .map_err(|e| e.to_string())?;
-    let client = make_client(provider, &credentials).map_err(|e| e.to_string())?;
+    let client = get_or_create_client(&state, provider, &credentials).map_err(|e| e.to_string())?;
 
     let on_progress = Arc::new(move |event: chelou_providers::ScanEvent| {
         let _ = app.emit("scan:progress", event);
     });
 
-    chelou_providers::scan_methods_in_folder(&client, root_folder_id.as_str(), on_progress)
+    chelou_providers::scan_methods_in_folder(&*client, root_folder_id.as_str(), on_progress)
         .await
         .map_err(|e| e.to_string())
 }

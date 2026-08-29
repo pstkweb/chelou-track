@@ -45,6 +45,7 @@ pub fn run() {
                 manifest: manifest::ManifestStore::new(app_dir),
                 http: reqwest::Client::new(),
                 url_cache: Mutex::new(HashMap::new()),
+                client_cache: Mutex::new(None),
             });
 
             #[cfg(target_os = "linux")]

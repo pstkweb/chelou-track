@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "chelou-track"
-version = "0.1.1"
+version = "0.1.2"
 description = "Lecteur de méthodes guitare avec AlphaTab et fichiers provenants du cloud (pCloud, etc.)"
 authors = ["Thomas Triboult"]
 edition = "2021"
@@ -33,7 +33,7 @@ anyhow       = "1"
 thiserror    = "1"
 log          = "0.4"
 tauri-plugin-os = "2"
-reqwest      = { version = "0.12", features = ["json"] }
+reqwest      = { version = "0.12", features = ["json", "stream"] }
 open         = "5"
 tauri-plugin-process = "2"
 
@@ -48,6 +48,7 @@ zbus-secret-service-keyring-store = { version = "1.0.0", features = ["crypto-rus
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+futures-util = "0.3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

@@ -4,10 +4,7 @@ use chelou_providers::{fetch_range, DownloadTarget, ProviderId, StorageProvider}
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
-use crate::{
-    commands::{get_or_refresh_credentials, AppState},
-    providers::make_client,
-};
+use crate::commands::{get_or_create_client, get_or_refresh_credentials, AppState};
 
 // Tauri v2 passes UriSchemeContext as the first arg, not AppHandle directly.
 // We clone the AppHandle out of it before spawning so the async block is 'static.
@@ -67,11 +64,31 @@ async fn handle_inner<R: Runtime>(
     Ok(builder.body(resp.body)?)
 }
 
-/// Resolve a media/doc request to bytes: check the active provider, get/refresh credentials,
-/// resolve (and cache) the provider download URL, then fetch the requested byte range.
-///
-/// Shared by the `stream://` handler above (all kinds, all platforms) and, on Linux only, the
-/// loopback media server in `media_server.rs` (video/audio only — cf. its module doc for why).
+/// Check the active provider, get/refresh credentials, and resolve (caching) the provider
+/// download URL — the part shared by every consumer of a media/doc request. Doesn't fetch any
+/// bytes: `resolve_media` below does that for `stream://` (buffered, one Range chunk at a time);
+/// `media_server.rs`'s Linux loopback server does its own true streaming proxy instead — see its
+/// module doc for why a buffered chunk model doesn't work for GStreamer-backed `<video>`/`<audio>`.
+pub async fn resolve_download_target(
+    state: tauri::State<'_, AppState>,
+    provider: ProviderId,
+    kind: StreamKind,
+    file_id: String,
+    transcoded: bool,
+) -> anyhow::Result<DownloadTarget> {
+    if state.auth.lock().unwrap().active_provider() != Some(provider) {
+        anyhow::bail!("media request for {provider:?}/{file_id} but active provider differs");
+    }
+
+    let credentials = get_or_refresh_credentials(state.clone()).await?;
+    let client = get_or_create_client(&state, provider, &credentials)?;
+
+    let use_video_link = matches!(kind, StreamKind::Video) && transcoded;
+    resolve_url(&state, file_id, use_video_link, &client).await
+}
+
+/// Resolve a media/doc request to bytes and fetch the requested byte range in one buffered chunk.
+/// Used by the `stream://` handler above (all kinds, all platforms).
 pub async fn resolve_media(
     state: tauri::State<'_, AppState>,
     provider: ProviderId,
@@ -80,15 +97,8 @@ pub async fn resolve_media(
     transcoded: bool,
     range_header: Option<&str>,
 ) -> anyhow::Result<chelou_providers::RangeResponse> {
-    if state.auth.lock().unwrap().active_provider() != Some(provider) {
-        anyhow::bail!("media request for {provider:?}/{file_id} but active provider differs");
-    }
-
-    let credentials = get_or_refresh_credentials(state.clone()).await?;
-    let client = make_client(provider, &credentials)?;
-
-    let use_video_link = matches!(kind, StreamKind::Video) && transcoded;
-    let download_target = resolve_url(&state, file_id, use_video_link, &client).await?;
+    let download_target =
+        resolve_download_target(state.clone(), provider, kind, file_id, transcoded).await?;
 
     // Cap open-ended or oversized ranges so we never buffer more than 1 MB at once.
     // The client sees a 206 + Content-Range and issues follow-up requests automatically.
@@ -148,6 +158,10 @@ async fn resolve_url(
 /// - `bytes=X-Y`   → kept as-is if ≤ chunk, capped otherwise
 ///
 /// Returns `None` if the header is absent or unparseable (caller falls back to original).
+/// A rangeless request is intentionally NOT capped here — `stream://` also serves doc/tab
+/// (`fetch()` calls with no Range header at all, expecting the whole file in one go; PDF.js and
+/// the tab loader don't do partial reads), so capping every rangeless request would silently
+/// truncate any PDF/GuitarPro file over `chunk` bytes.
 fn cap_range(range: Option<&str>, chunk: u64) -> Option<String> {
     let r = range?;
     let rest = r.strip_prefix("bytes=")?;

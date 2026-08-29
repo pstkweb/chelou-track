@@ -547,12 +547,13 @@ dependencies = [
 
 [[package]]
 name = "chelou-track"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
  "chelou-manifest",
  "chelou-providers",
+ "futures-util",
  "http-body-util",
  "hyper",
  "hyper-util",
