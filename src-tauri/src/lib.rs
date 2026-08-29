@@ -12,6 +12,21 @@ use std::sync::Mutex;
 use tauri::Manager;
 
 pub fn run() {
+    // AppRun (AppImage) sets GST_PLUGIN_SYSTEM_PATH{,_1_0} to only the bundled
+    // usr/lib/gstreamer-1.0 dir (from bundle.linux.appimage.bundleMediaFramework). Unlike
+    // GST_PLUGIN_PATH (additive — extra dirs on top of the defaults), GST_PLUGIN_SYSTEM_PATH
+    // *replaces* the default system search entirely when set, hiding the system's own
+    // GStreamer plugins — including basic video sinks (confirmed: "GStreamer element
+    // fakevideosink not found" — video fails while audio, needing no video sink, plays fine).
+    // Clearing it restores GStreamer's compiled-in default system paths (correct on any distro,
+    // no hardcoded path needed) while GST_PLUGIN_PATH keeps the bundled decoders available.
+    // Gated on $APPIMAGE so .deb/.rpm/pacman installs (which never set it) are untouched.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some() {
+        std::env::remove_var("GST_PLUGIN_SYSTEM_PATH");
+        std::env::remove_var("GST_PLUGIN_SYSTEM_PATH_1_0");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
