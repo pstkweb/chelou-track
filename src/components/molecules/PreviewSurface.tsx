@@ -1,5 +1,5 @@
-import { docUrl } from '@/lib/stream';
 import type { DocumentRef, Provider } from '@/types/model';
+import ImagePreview from '../atoms/ImagePreview';
 import PdfPreview from '../atoms/PdfPreview';
 
 type PreviewSurfaceProps = {
@@ -18,7 +18,7 @@ export default function PreviewSurface({ document, provider }: PreviewSurfacePro
   if (document.kind === 'image') {
     return (
       <div className="flex size-full items-center overflow-hidden bg-bg3">
-        <img src={docUrl(provider, document.file.fileId)} alt={document.title} />
+        <ImagePreview document={document} provider={provider} />
       </div>
     );
   }
