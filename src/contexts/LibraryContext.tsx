@@ -1,4 +1,4 @@
-import { createContext, type Dispatch, useContext, useMemo, useReducer } from 'react';
+import { createContext, type Dispatch, useCallback, useContext, useMemo, useReducer } from 'react';
 import { deleteMethod, listMethods, saveMethod } from '@/lib/ipc';
 import type { Method } from '@/types/model';
 
@@ -31,26 +31,28 @@ function libraryReducer(library: Method[], action: LibraryAction) {
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const [methods, dispatch] = useReducer(libraryReducer, []);
 
-  async function remove(method: Method) {
+  const remove = useCallback(async (method: Method) => {
     await deleteMethod(method.id);
 
     dispatch({ type: 'delete', method });
-  }
+  }, []);
 
-  async function add(method: Method) {
+  const add = useCallback(async (method: Method) => {
     await saveMethod(method);
 
     dispatch({ type: 'add', method });
-  }
+  }, []);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     const methods = await listMethods();
 
     dispatch({ type: 'set', methods });
-  }
+  }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stable local functions
-  const contextValue = useMemo(() => ({ methods, dispatch, remove, add, refresh }), [methods]);
+  const contextValue = useMemo(
+    () => ({ methods, dispatch, remove, add, refresh }),
+    [methods, remove, add, refresh],
+  );
 
   return <LibraryContext.Provider value={contextValue}>{children}</LibraryContext.Provider>;
 }
