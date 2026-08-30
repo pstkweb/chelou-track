@@ -1,32 +1,41 @@
 import { Guitar, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import Button from '@/components/atoms/Button';
+import cn from '@/lib/cn';
 import { computeMethodColors } from '@/lib/colors';
 import { countBackingTracks, countLessons, countTabs, methodProgressPct } from '@/lib/method-view';
+import { PROVIDERS } from '@/lib/providers';
 import type { Method } from '@/types/model';
 
 type MethodCardProps = {
   method: Method;
+  isAvailable: boolean;
   onDelete: (method: Method) => void;
   onOpen: (method: Method) => void;
 };
 
-export default function MethodCard({ method, onDelete, onOpen }: MethodCardProps) {
+export default function MethodCard({ method, isAvailable, onDelete, onOpen }: MethodCardProps) {
   const [isConfirming, setIsConfirming] = useState(false);
   const started = Object.keys(method.progress).length > 0;
   const fmtPct = () => `${(methodProgressPct(method) * 100).toFixed()}%`;
   const [c1, c2] = computeMethodColors(method.title);
 
+  const handleOpen = () => {
+    if (isAvailable) onOpen(method);
+  };
   const handleEnterPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      onOpen(method);
+      handleOpen();
     }
   };
 
   return (
     <div
-      className="card card-lift flex cursor-pointer flex-col overflow-hidden p-0"
-      onClick={() => onOpen(method)}
+      className={cn(
+        'card card-lift flex flex-col overflow-hidden p-0',
+        isAvailable ? 'cursor-pointer' : 'grayscale',
+      )}
+      onClick={handleOpen}
       onKeyDown={handleEnterPress}
     >
       <div className="relative z-10 flex flex-col">
@@ -91,7 +100,13 @@ export default function MethodCard({ method, onDelete, onOpen }: MethodCardProps
               <b className="text-fg2">{countBackingTracks(method.items)}</b> backings
             </span>
           </div>
-          {started ? (
+          {!isAvailable ? (
+            <div className="flex items-center gap-3">
+              <span className="flex-1 text-fg3 text-xs">
+                Reconnecte {PROVIDERS[method.source.provider].label} pour y accéder
+              </span>
+            </div>
+          ) : started ? (
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 <div className="pbar">

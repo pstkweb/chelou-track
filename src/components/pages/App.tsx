@@ -10,7 +10,7 @@ import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext'
 import { ToastProvider } from '@/contexts/ToastContext';
 import useAppUpdater from '@/hooks/useAppUpdater';
 import useSystemTheme from '@/hooks/useSystemTheme';
-import { getAuthStatus, listMethods, markLessonSeen } from '@/lib/ipc';
+import { getAuthStatus, listMethods, logout, markLessonSeen } from '@/lib/ipc';
 import type { Provider } from '@/types/model';
 import DocumentsScreen from '../templates/DocumentsScreen';
 import TabScreen from '../templates/TabScreen';
@@ -86,6 +86,12 @@ export default function App() {
     });
   }, []);
 
+  const handleLogout = async () => {
+    await logout();
+    setConnectedProvider(undefined);
+    setState('no-auth');
+  };
+
   return (
     <div className="app-window">
       <ToastProvider>
@@ -93,7 +99,7 @@ export default function App() {
         <BreadcrumbProvider>
           {state !== 'loading' && (
             <LibraryProvider>
-              <TitleBar connectedProvider={connectedProvider} />
+              <TitleBar connectedProvider={connectedProvider} onLogout={handleLogout} />
 
               <div className="app-body">
                 {state === 'ready' ? (
@@ -104,7 +110,10 @@ export default function App() {
                   <ConnectScreen
                     startAtFolder={state === 'no-methods'}
                     provider={connectedProvider}
-                    onConnected={() => setState('ready')}
+                    onConnected={(provider) => {
+                      setConnectedProvider(provider);
+                      setState('ready');
+                    }}
                   />
                 )}
               </div>

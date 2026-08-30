@@ -64,7 +64,13 @@ export default function LibraryScreen() {
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-(--gap)">
           {library.map((m) => (
-            <MethodCard key={m.id} method={m} onOpen={goToMethod} onDelete={handleDelete} />
+            <MethodCard
+              key={m.id}
+              method={m}
+              isAvailable={m.source.provider === activeProvider}
+              onOpen={goToMethod}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
 

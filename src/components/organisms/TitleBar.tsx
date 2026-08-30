@@ -1,7 +1,8 @@
 import { platform } from '@tauri-apps/plugin-os';
-import { Guitar } from 'lucide-react';
+import { Guitar, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Chip from '@/components/atoms/Chip';
+import IconButton from '@/components/atoms/IconButton';
 import WindowControls from '@/components/atoms/WindowControls';
 import Breadcrumb from '@/components/molecules/Breadcrumb';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
@@ -10,9 +11,10 @@ import type { Provider } from '@/types/model';
 
 type TitleBarProps = {
   connectedProvider: Provider | undefined;
+  onLogout: () => void;
 };
 
-export default function TitleBar({ connectedProvider }: TitleBarProps) {
+export default function TitleBar({ connectedProvider, onLogout }: TitleBarProps) {
   const [isMac, setIsMac] = useState<boolean>(false);
   const { items: breadcrumb } = useBreadcrumb();
 
@@ -32,10 +34,15 @@ export default function TitleBar({ connectedProvider }: TitleBarProps) {
       {breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
       <div className="tb-spacer" />
       {connectedProvider && (
-        <Chip className="h-6 text-xs">
-          <span className="size-2 flex-initial rounded-full bg-done" />{' '}
-          {PROVIDERS[connectedProvider].label}
-        </Chip>
+        <>
+          <Chip className="h-6 text-xs">
+            <span className="size-2 flex-initial rounded-full bg-done" />{' '}
+            {PROVIDERS[connectedProvider].label}
+          </Chip>
+          <IconButton onClick={onLogout} title="Se déconnecter" className="size-6">
+            <LogOut size={13} />
+          </IconButton>
+        </>
       )}
       {!isMac && <WindowControls />}
     </div>

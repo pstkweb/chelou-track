@@ -16,7 +16,7 @@ type Crumb = { id: string; name: string };
 type FolderPickerProps = {
   provider: Provider;
   title?: string;
-  onConnected: () => void;
+  onConnected: (provider: Provider) => void;
 };
 
 type State = 'browse' | 'scan' | 'review';
@@ -102,7 +102,7 @@ export default function FolderPicker({
     return (
       <ScanReview
         foundMethods={revealedMethods}
-        onImport={onConnected}
+        onImport={() => onConnected(provider)}
         onBack={() => setState('browse')}
       />
     );

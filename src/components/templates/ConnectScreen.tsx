@@ -5,7 +5,7 @@ import Spinner from '@/components/atoms/Spinner';
 import FolderPicker from '@/components/organisms/FolderPicker';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 import cn from '@/lib/cn';
-import { oauthStart } from '@/lib/ipc';
+import { listMethods, oauthStart } from '@/lib/ipc';
 import { PROVIDERS } from '@/lib/providers';
 import type { Provider } from '@/types/model';
 
@@ -14,7 +14,7 @@ type ConnectScreenProps = {
   /** Already-connected provider (e.g. resuming folder pick with no methods yet).
    * Seeds `provider` state since the picker UI is skipped when `startAtFolder` is true. */
   provider?: Provider | undefined;
-  onConnected: () => void;
+  onConnected: (provider: Provider) => void;
 };
 
 type ConnectPhase = 'idle' | 'consent' | 'folder';
@@ -45,6 +45,16 @@ export default function ConnectScreen({
 
     try {
       await oauthStart(provider); // blocks until OAuth complete or cancelled
+
+      // Reconnecting a provider that already has local methods (e.g. after a logout/relogin
+      // with the same account) — skip straight to the library instead of forcing the user back
+      // through folder-picking and re-scanning. Genuinely new providers still go through it.
+      const methods = await listMethods();
+      if (methods.some((m) => m.source.provider === provider)) {
+        onConnected(provider);
+        return;
+      }
+
       setPhase('folder');
     } catch (e) {
       setOauthErr(String(e));
