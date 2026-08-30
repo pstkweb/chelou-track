@@ -5,12 +5,12 @@ import LessonScreen from '@/components/templates/LessonScreen';
 import LibraryScreen from '@/components/templates/LibraryScreen';
 import MethodScreen from '@/components/templates/MethodScreen';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
-import { LibraryProvider } from '@/contexts/LibraryContext';
+import { LibraryProvider, useLibrary } from '@/contexts/LibraryContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import useAppUpdater from '@/hooks/useAppUpdater';
 import useSystemTheme from '@/hooks/useSystemTheme';
-import { getAuthStatus, listMethods, logout, markLessonSeen } from '@/lib/ipc';
+import { getAuthStatus, listMethods, logout } from '@/lib/ipc';
 import type { Provider } from '@/types/model';
 import DocumentsScreen from '../templates/DocumentsScreen';
 import TabScreen from '../templates/TabScreen';
@@ -25,6 +25,7 @@ function UpdateChecker() {
 
 function AuthenticatedView() {
   const { screen } = useNavigation();
+  const { markSeen } = useLibrary();
   useSystemTheme();
 
   if (screen.id === 'method') {
@@ -33,7 +34,7 @@ function AuthenticatedView() {
 
   if (screen.id === 'player') {
     const handleVideoEnded = () => {
-      markLessonSeen(screen.method.id, screen.lesson.id);
+      markSeen(screen.method.id, screen.lesson.id);
     };
 
     return (

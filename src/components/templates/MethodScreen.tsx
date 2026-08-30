@@ -1,11 +1,10 @@
 import { Folder } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import Chip from '@/components/atoms/Chip';
 import MethodHero from '@/components/organisms/MethodHero';
 import SidebarNav from '@/components/organisms/SidebarNav';
+import { useLibrary } from '@/contexts/LibraryContext';
 import { useNavigation } from '@/contexts/NavigationContext';
 import useMethodView from '@/hooks/useMethodView';
-import { listMethods } from '@/lib/ipc';
 import type { Method } from '@/types/model';
 
 type MethodScreenProps = {
@@ -14,17 +13,10 @@ type MethodScreenProps = {
 
 export default function MethodScreen({ method: initial }: MethodScreenProps) {
   const { listDocuments } = useNavigation();
-  const [method, setMethod] = useState(initial);
-
-  useEffect(() => {
-    listMethods().then((methods) => {
-      const fresh = methods.find((m) => m.id === initial.id);
-
-      if (fresh) {
-        setMethod(fresh);
-      }
-    });
-  }, [initial.id]);
+  const { methods } = useLibrary();
+  // `methods` in context stays in sync with progress/lead-in updates (see LibraryContext) —
+  // fall back to the navigation-time snapshot only if it's somehow not there yet.
+  const method = methods.find((m) => m.id === initial.id) ?? initial;
 
   const { chapters, stats, currentChapter, currentLesson } = useMethodView(method);
 

@@ -1,7 +1,7 @@
 import { Check, ChevronLeft, ChevronRight, Music, Video } from 'lucide-react';
 import { useState } from 'react';
+import { useLibrary } from '@/contexts/LibraryContext';
 import { useNavigation } from '@/contexts/NavigationContext';
-import { markLessonSeen, markLessonUnseen } from '@/lib/ipc';
 import { type Chapter, searchSiblings } from '@/lib/method-view';
 import type { Lesson, Method } from '@/types/model';
 import Button from '../atoms/Button';
@@ -21,6 +21,7 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
   const lessonStatus = lessonMeta?.status || 'todo';
 
   const { openLesson, openTab, goToMethod } = useNavigation();
+  const { markSeen, markUnseen } = useLibrary();
   const [done, setDone] = useState(lessonStatus === 'done');
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
   const handleVideoEnd = () => {
@@ -45,9 +46,9 @@ export default function LessonScreen({ lesson, chapter, method, onVideoEnd }: Le
   const handleToggleDone = () => {
     setDone((d) => {
       if (!d) {
-        markLessonSeen(method.id, lesson.id);
+        markSeen(method.id, lesson.id);
       } else {
-        markLessonUnseen(method.id, lesson.id);
+        markUnseen(method.id, lesson.id);
       }
 
       return !d;

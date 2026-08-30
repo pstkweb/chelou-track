@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { updateLessonResume } from '@/lib/ipc';
+import { useLibrary } from '@/contexts/LibraryContext';
 
 export default function useTimecodeResume(methodId: string, lessonId: string, delay = 5_000) {
+  const { setResume } = useLibrary();
   const timerRef = useRef<number | null>(null);
   const pendingMsRef = useRef<number | null>(null);
 
@@ -12,10 +13,10 @@ export default function useTimecodeResume(methodId: string, lessonId: string, de
     }
 
     if (pendingMsRef.current !== null) {
-      void updateLessonResume(methodId, lessonId, pendingMsRef.current);
+      void setResume(methodId, lessonId, pendingMsRef.current);
       pendingMsRef.current = null;
     }
-  }, [methodId, lessonId]);
+  }, [methodId, lessonId, setResume]);
 
   const record = useCallback(
     (currentTimeSeconds: number) => {

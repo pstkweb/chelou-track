@@ -1,5 +1,5 @@
 import { type RefObject, useEffect, useState } from 'react';
-import { updateBackingTrackLeadInOverride } from '@/lib/ipc';
+import { useLibrary } from '@/contexts/LibraryContext';
 import { detectLeadingSilence } from '@/lib/silence-detection';
 import type { BackingTrack, Lesson, Method } from '@/types/model';
 
@@ -11,6 +11,7 @@ export default function useLeadInDetection(
   beatsPerBarRef: RefObject<number>,
   notatedBpmRef: RefObject<number>,
 ) {
+  const { setLeadIn } = useLibrary();
   const [detectedLeadInMs, setDetectedLeadInMs] = useState<number | undefined>(undefined);
 
   // Runs detection in the background whenever a track without a cached lead-in is
@@ -44,7 +45,7 @@ export default function useLeadInDetection(
         // Utilisable dès maintenant pour cette session (count-in, sync curseur) — la
         // persistance ci-dessous est fire-and-forget et ne fait pas revivre l'état local.
         setDetectedLeadInMs(leadInMs);
-        return updateBackingTrackLeadInOverride(method.id, lesson.id, track.audio.fileId, leadInMs);
+        return setLeadIn(method.id, lesson.id, track.audio.fileId, leadInMs);
       })
       .catch((err) => {
         console.warn('leading-silence detection/persistence failed', err);
@@ -62,6 +63,7 @@ export default function useLeadInDetection(
     beatsPerBarRef,
     notatedBpmRef,
     scoreLoadedRef,
+    setLeadIn,
   ]);
 
   return detectedLeadInMs;
