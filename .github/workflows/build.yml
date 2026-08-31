@@ -42,6 +42,15 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # bundleMediaFramework makes linuxdeploy bundle every GStreamer plugin it finds on the
+      # runner, including gst-libav (the ffmpeg wrapper). That one ships broken in the AppImage:
+      # with it bundled, playback fails outright ("Impossible de lire cette vidéo"); removing it
+      # from the runner before bundling makes video work, and GStreamer falls back to the other
+      # decoders that are bundled alongside it. Nothing else needs it — lesson videos are H.264.
+      - name: Drop gst-libav so it isn't bundled
+        if: runner.os == 'Linux'
+        run: sudo find /usr/lib -name 'libgstlibav.so' -delete
+
       - name: Install frontend dependencies
         run: npm ci
 

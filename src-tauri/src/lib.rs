@@ -20,6 +20,11 @@ pub fn run() {
     // fakevideosink not found" — video fails while audio, needing no video sink, plays fine).
     // Clearing it restores GStreamer's compiled-in default system paths (correct on any distro,
     // no hardcoded path needed) while GST_PLUGIN_PATH keeps the bundled decoders available.
+    // Only this pair, deliberately: GST_PLUGIN_PATH / GST_PLUGIN_SCANNER / GST_PTP_HELPER must
+    // keep pointing into the bundle. WebKitWebProcess loads the *bundled* GStreamer core (via
+    // LD_LIBRARY_PATH, which we can't touch without breaking WebKit) and that core's built-in
+    // default plugin dir is the Ubuntu build path — missing elsewhere, so clearing them too
+    // leaves it with no plugins at all (appsrc/appsink not found, app hangs).
     // Gated on $APPIMAGE so .deb/.rpm/pacman installs (which never set it) are untouched.
     #[cfg(target_os = "linux")]
     if std::env::var_os("APPIMAGE").is_some() {

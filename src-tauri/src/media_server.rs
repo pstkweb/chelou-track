@@ -80,7 +80,7 @@ pub fn spawn(app: AppHandle) {
                 let io = TokioIo::new(stream);
                 let service = service_fn(move |req| handle(app.clone(), req));
                 if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
-                    eprintln!("media_server: connection error: {e}");
+                    eprintln!("media_server: connection error: {e} | debug: {e:?}");
                 }
             });
         }
@@ -93,14 +93,17 @@ async fn handle(
 ) -> Result<Response<ResponseBody>, std::convert::Infallible> {
     Ok(match handle_inner(&app, req).await {
         Ok(resp) => resp,
-        Err(e) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(
-                Full::new(Bytes::from(e.to_string()))
-                    .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-                    .boxed(),
-            )
-            .expect("static status/body always builds a valid response"),
+        Err(e) => {
+            eprintln!("media_server: request failed: {e} | debug: {e:?}");
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(
+                    Full::new(Bytes::from(e.to_string()))
+                        .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+                        .boxed(),
+                )
+                .expect("static status/body always builds a valid response")
+        }
     })
 }
 
@@ -143,6 +146,7 @@ async fn handle_inner(
         .get("Range")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    eprintln!("media_server: request {path} range={range_header:?}");
 
     let state = app.state::<AppState>();
     let download_target =
@@ -158,6 +162,11 @@ async fn handle_inner(
 
     let upstream_resp = upstream.send().await?;
     let status = upstream_resp.status().as_u16();
+    eprintln!(
+        "media_server: response {path} status={status} content-length={:?} content-range={:?}",
+        upstream_resp.headers().get(reqwest::header::CONTENT_LENGTH),
+        upstream_resp.headers().get(reqwest::header::CONTENT_RANGE),
+    );
     let content_type = upstream_resp
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
