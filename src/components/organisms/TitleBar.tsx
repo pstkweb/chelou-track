@@ -1,3 +1,4 @@
+import { getVersion } from '@tauri-apps/api/app';
 import { platform } from '@tauri-apps/plugin-os';
 import { Guitar, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -15,11 +16,14 @@ type TitleBarProps = {
 };
 
 export default function TitleBar({ connectedProvider, onLogout }: TitleBarProps) {
-  const [isMac, setIsMac] = useState<boolean>(false);
+  const [isMac, setIsMac] = useState(false);
+  const [version, setVersion] = useState('');
   const { items: breadcrumb } = useBreadcrumb();
 
   useEffect(() => {
     setIsMac(platform() === 'macos');
+
+    getVersion().then(setVersion);
   }, []);
 
   return (
@@ -29,7 +33,7 @@ export default function TitleBar({ connectedProvider, onLogout }: TitleBarProps)
         <div className="flex size-5 items-center justify-center rounded bg-accent text-accentink">
           <Guitar size={12} />
         </div>
-        <span className="tb-title">Chelou&nbsp;Track</span>
+        <span className="tb-title">Chelou&nbsp;Track v{version || '??'}</span>
       </div>
       {breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
       <div className="tb-spacer" />
