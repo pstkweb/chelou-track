@@ -76,6 +76,12 @@ pub enum ProviderId {
     PCloud,
     #[serde(rename = "dropbox")]
     Dropbox,
+    // Implemented and functional (drive.readonly, cf. gdrive.rs), but hidden from the
+    // connect UI (src/lib/providers.ts PROVIDERS omits it from the selectable list) since
+    // 2026-09: Google requires drive.readonly to pass an ADA-CASA AL1 security assessment,
+    // ~540$/year recurring plus multi-week turnaround (drive.file was tried first — doesn't
+    // work, cf. authorize_url's comment below) — disproportionate for this project. Left
+    // wired up in case that calculus changes; re-enabling is just restoring the UI entry.
     #[serde(rename = "gdrive")]
     GoogleDrive,
 }

@@ -304,7 +304,11 @@ que si le support HEVC est installé sur la machine). On ne sonde pas : le fallb
   des Range) contre la version de Tauri installée.
 - Codec vidéo réel (seulement si un échec de décodage survient — sinon non pertinent).
 
-## 14. Multi-provider — pCloud / Dropbox / Google Drive
+## 14. Multi-provider — pCloud / Dropbox / etc.
+
+**État et roadmap des providers (implémentés, candidats, exclus, et pourquoi) : voir
+`docs/PROVIDERS.md`.** Cette section-ci ne couvre que les détails techniques d'implémentation
+des providers actifs.
 
 Chaque provider implémente les traits `StorageProvider`/`ProviderAuth` (`chelou-providers`,
 un module par provider : `pcloud.rs`, `dropbox.rs`, `gdrive.rs`). Deux points où Google Drive
@@ -336,7 +340,10 @@ Autres divergences, mineures, par provider :
   quel port `localhost`, sans avoir à lister chaque port comme pour pCloud/Dropbox. Scope minimal
   `drive.readonly` : le scan (§6) parcourt une arborescence existante appartenant à l'utilisateur,
   ce que ne permet pas `drive.file` (limité aux fichiers créés par l'app ou choisis via un
-  Google Picker).
+  Google Picker — testé réellement, ne fonctionne pas pour ce cas d'usage). `drive.readonly`
+  étant un scope restreint, Google exige un audit de sécurité payant annuel pour le valider en
+  production — jugé disproportionné pour ce projet ; le provider est donc implémenté mais masqué
+  du sélecteur (détails et alternatives : `docs/PROVIDERS.md`).
 
 ## 15. Stratégie de tests
 

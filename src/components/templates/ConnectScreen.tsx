@@ -122,47 +122,53 @@ export default function ConnectScreen({
               aria-label="Fournisseur cloud"
               className="m-0 mb-4.5 flex flex-col gap-2"
             >
-              {Object.entries(PROVIDERS).map(([providerId, p]) => {
-                const on = provider === providerId;
-                const ProviderGlyph = p.icon;
+              {Object.entries(PROVIDERS)
+                // gdrive is implemented and works (cf. ProviderId::GoogleDrive doc comment
+                // in chelou-providers/src/lib.rs) but hidden here: Google now requires an
+                // annual paid CASA security assessment for its drive.readonly scope,
+                // disproportionate for this project — not offered as a connect option.
+                .filter(([providerId]) => providerId !== 'gdrive')
+                .map(([providerId, p]) => {
+                  const on = provider === providerId;
+                  const ProviderGlyph = p.icon;
 
-                return (
-                  <button
-                    key={providerId}
-                    onClick={() => {
-                      setOauthErr(null);
-                      setProvider(providerId as Provider);
-                    }}
-                    disabled={phase === 'consent'}
-                    type="button"
-                    className={cn(
-                      'flex w-full cursor-pointer items-center gap-3 rounded border border-border bg-bg-3 px-3.5 py-3 text-left text-fg shadow-none transition-colors duration-150 ease-(--ease)',
-                      phase === 'consent' && 'cursor-default',
-                      on &&
-                        'border-accent bg-mix-(--accent)/12 shadow-[inset_0_0_0_1px_var(--accent)]',
-                    )}
-                  >
-                    <span
-                      className="flex size-7.5 flex-initial items-center justify-center rounded-sm"
-                      style={{
-                        background: `color-mix(in srgb, ${p.color} 18%, transparent)`,
-                        color: p.color,
+                  return (
+                    <button
+                      key={providerId}
+                      onClick={() => {
+                        setOauthErr(null);
+                        setProvider(providerId as Provider);
                       }}
-                    >
-                      <ProviderGlyph size={17} />
-                    </span>
-                    <span className="flex-1 font-semibold text-sm">{p.label}</span>
-                    <span
+                      disabled={phase === 'consent'}
+                      type="button"
                       className={cn(
-                        'flex size-4.5 flex-initial items-center justify-center rounded-full border border-border bg-transparent text-accentink',
-                        on && 'border-accent bg-accent',
+                        'flex w-full cursor-pointer items-center gap-3 rounded border border-border bg-bg-3 px-3.5 py-3 text-left text-fg shadow-none transition-colors duration-150 ease-(--ease)',
+                        phase === 'consent' && 'cursor-default',
+                        on &&
+                          'border-accent bg-mix-(--accent)/12 shadow-[inset_0_0_0_1px_var(--accent)]',
                       )}
                     >
-                      {on && <Check size={11} />}
-                    </span>
-                  </button>
-                );
-              })}
+                      <span
+                        className="flex size-7.5 flex-initial items-center justify-center rounded-sm"
+                        style={{
+                          background: `color-mix(in srgb, ${p.color} 18%, transparent)`,
+                          color: p.color,
+                        }}
+                      >
+                        <ProviderGlyph size={17} />
+                      </span>
+                      <span className="flex-1 font-semibold text-sm">{p.label}</span>
+                      <span
+                        className={cn(
+                          'flex size-4.5 flex-initial items-center justify-center rounded-full border border-border bg-transparent text-accentink',
+                          on && 'border-accent bg-accent',
+                        )}
+                      >
+                        {on && <Check size={11} />}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
 
             <p className="m-0 mb-4 text-fg2 text-sm/relaxed">

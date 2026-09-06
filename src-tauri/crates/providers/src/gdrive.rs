@@ -105,6 +105,13 @@ impl ProviderAuth for GDriveAuth {
         format!(
             "{AUTH_URL}?client_id={client_id}&redirect_uri={}&response_type=code&scope={}",
             crate::oauth::percent_encode(redirect_uri),
+            // Google's own suggestion of drive.file + drive.metadata.readonly does not
+            // work for this app: drive.file grants content access only to files the app
+            // individually opened/created (via Picker or "Open with"), never to files
+            // merely discovered by listing a picked folder's contents — confirmed against
+            // a real scan, which got a 403 appNotAuthorizedToFile trying to stream a file
+            // found that way. Scanning an arbitrary user-chosen folder tree and streaming
+            // whatever's found in it — same model as pCloud/Dropbox — needs drive.readonly.
             crate::oauth::percent_encode("https://www.googleapis.com/auth/drive.readonly"),
         )
     }
