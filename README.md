@@ -176,13 +176,15 @@ optionnellement, le commit à releaser (par défaut la tête de `main`). Il :
 1. calcule la version suivante depuis le plus grand tag `vX.Y.Z` ;
 2. l'écrit partout via [scripts/bump-version.mjs](scripts/bump-version.mjs) (`package.json`,
    `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
-   `src-tauri/Cargo.lock`), committe, tague et pousse (le commit n'est poussé sur `main` que si
-   le commit visé en est la tête) ;
+   `src-tauri/Cargo.lock`), committe, tague et pousse **le tag seul** ;
 3. crée la release en brouillon, lance [build.yml](.github/workflows/build.yml) qui compile
    Windows, macOS et Linux, signe les artefacts de mise à jour et les attache avec le
    `latest.json` lu par l'updater intégré ;
-4. publie la release une fois tous les builds réussis.
+4. une fois tous les builds réussis, publie la release puis pousse le commit de bump sur `main`
+   (en fast-forward, et seulement si le commit visé était la tête de `main`).
 
-Si un build échoue, la release reste en brouillon : relancer les jobs échoués du run. Un fichier
+Si quoi que ce soit échoue ou est annulé, le brouillon et le tag sont supprimés et `main` n'a pas
+bougé : corriger, puis relancer le workflow entier (« Re-run failed jobs » ne marche pas, le tag
+n'existe plus). Un fichier
 qui porte la version s'ajoute dans `scripts/bump-version.mjs`, nulle part ailleurs. Publier une
 release à la main depuis l'UI GitHub déclenche toujours `build.yml` directement.

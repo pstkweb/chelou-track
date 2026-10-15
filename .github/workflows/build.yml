@@ -31,6 +31,13 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      # Sans id, tauri-action cherche la release par tag — introuvable si c'est un brouillon.
+      - name: Check release id
+        if: inputs.release-id == '' && github.event.release.id == ''
+        run: |
+          echo "::error::Aucun id de release reçu"
+          exit 1
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}

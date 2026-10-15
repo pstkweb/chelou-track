@@ -4,6 +4,10 @@ name: Release
 # les fichiers via scripts/bump-version.mjs, commit + tag, crée la release en brouillon, lance
 # build.yml dessus puis la publie une fois les artefacts attachés (l'updater suit
 # releases/latest : il ne voit jamais une release sans latest.json).
+#
+# main n'est touché qu'après publication : en cas d'échec ou d'annulation, le job cleanup
+# supprime le brouillon et le tag, et il n'y a rien à défaire dans l'historique. La contrepartie :
+# pas de « Re-run failed jobs » possible, il faut relancer le workflow entier.
 
 on:
   workflow_dispatch:
@@ -36,14 +40,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
+      tag-pushed: ${{ steps.bump.outputs.tag-pushed }}
       release-id: ${{ steps.release.outputs.id }}
+      on-main-head: ${{ steps.target.outputs.on-main-head }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -58,7 +64,8 @@ jobs:
             || { echo "::error::Commit introuvable : $ref"; exit 1; }
           main=$(git rev-parse origin/main)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          # Le commit de bump n'est poussé sur main que s'il s'y ajoute en fast-forward.
+          # Le commit de bump n'est poussé sur main (à la publication) que s'il s'y ajoute en
+          # fast-forward.
           if [ "$sha" = "$main" ]; then
             echo "on-main-head=true" >> "$GITHUB_OUTPUT"
           else
@@ -90,11 +97,11 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
       - name: Bump, commit and tag
+        id: bump
         env:
           SHA: ${{ steps.target.outputs.sha }}
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
-          ON_MAIN_HEAD: ${{ steps.target.outputs.on-main-head }}
         run: |
           # Le script vient de main : un commit visé plus ancien peut ne pas l'avoir (ou une
           # version qui oublie un fichier).
@@ -103,14 +110,13 @@ jobs:
           node "$RUNNER_TEMP/bump-version.mjs" "$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore: Release $TAG"
+          # Rien à committer si le commit visé porte déjà la version (relance après un échec).
+          git diff --quiet || git commit -am "chore: Release $TAG"
           git tag -a "$TAG" -m "Release $TAG"
-          # --atomic : si main a bougé entre-temps, rien n'est poussé (ni main ni le tag).
-          if [ "$ON_MAIN_HEAD" = "true" ]; then
-            git push --atomic origin HEAD:refs/heads/main "refs/tags/$TAG"
-          else
-            git push origin "refs/tags/$TAG"
-          fi
+          # Seul le tag part maintenant (la release et le build en ont besoin) ; main attend la
+          # publication.
+          git push origin "refs/tags/$TAG"
+          echo "tag-pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Create draft release
         id: release
@@ -118,9 +124,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-            --title "$TAG" --generate-notes
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          # L'id vient de la réponse de création : un brouillon est introuvable par tag, et
+          # tauri-action sans releaseId tente alors de créer sa propre release (et échoue).
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$TAG" -f name="$TAG" -F draft=true -F generate_release_notes=true \
+            --jq .id)
+          if [ -z "$id" ]; then echo "::error::Id de la release introuvable"; exit 1; fi
+          echo "Release $TAG créée en brouillon (id $id)"
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
@@ -136,8 +146,46 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     steps:
+      # Par id, comme la création : un brouillon n'est pas adressable par son tag.
       - name: Publish draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -f make_latest=true --silent
+
+      - uses: actions/checkout@v7
+        if: needs.prepare.outputs.on-main-head == 'true'
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+          fetch-depth: 0
+
+      # Fast-forward uniquement. Si main a bougé pendant le build, on n'écrase rien : la release
+      # est valide sous son tag, et le prochain bump part des tags, pas des fichiers de main.
+      - name: Push bump commit to main
+        if: needs.prepare.outputs.on-main-head == 'true'
+        env:
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        run: |
+          git push origin "refs/tags/$TAG^{commit}:refs/heads/main" \
+            || echo "::warning::main a bougé pendant le build : commit de $TAG non poussé sur main."
+
+  cleanup:
+    name: Roll back on failure
+    needs: [prepare, build, publish]
+    # always() : tourne aussi sur échec ou annulation d'un job précédent.
+    if: always() && needs.prepare.outputs.tag-pushed == 'true' && needs.publish.result != 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete draft release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release-id }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if [ -n "$RELEASE_ID" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          fi
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"
+          echo "::notice::Release $TAG annulée : brouillon et tag supprimés, main inchangé."
