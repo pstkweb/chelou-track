@@ -145,12 +145,21 @@ pub trait StorageProvider: Send + Sync {
     ) -> impl std::future::Future<Output = Result<DownloadTarget>> + Send;
 }
 pub trait ProviderAuth {
-    fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String;
+    /// `state` and `code_challenge` (PKCE S256) come from the [`oauth::LoopbackSession`].
+    /// A provider without PKCE support ignores `code_challenge` (and `code_verifier` below).
+    fn authorize_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        code_challenge: &str,
+    ) -> String;
 
     fn exchange_code(
         &self,
         code: &str,
         redirect_uri: &str,
+        code_verifier: &str,
         client_id: &str,
         client_secret: &str,
     ) -> impl std::future::Future<Output = Result<StoredCredentials>> + Send;
@@ -177,6 +186,37 @@ pub struct RangeResponse {
     pub body: Vec<u8>,
 }
 
+/// 128 bits from the OS CSPRNG (uuid v4 → getrandom), as 32 hex chars. For OAuth `state`/PKCE
+/// and the Linux media server's per-session token.
+pub fn random_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// Replace every `http://`/`https://` URL in `message` with `<url>`.
+///
+/// Error messages crossing into the WebView (or the logs) go through this: reqwest puts the full
+/// request URL in its `Display`, and for pCloud/Dropbox that URL is a pre-signed download link
+/// — as good as a token (cf. ARCHITECTURE.md §3).
+pub fn redact_urls(message: &str) -> String {
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(start) = ["http://", "https://"]
+        .iter()
+        .filter_map(|scheme| rest.find(scheme))
+        .min()
+    {
+        out.push_str(&rest[..start]);
+        out.push_str("<url>");
+        let url = &rest[start..];
+        let end = url
+            .find(|c: char| c.is_whitespace() || matches!(c, ')' | '"' | '\'' | '>'))
+            .unwrap_or(url.len());
+        rest = &url[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub async fn fetch_range(
     http: &reqwest::Client,
     target: &DownloadTarget,
@@ -192,7 +232,8 @@ pub async fn fetch_range(
         req = req.header("Range", r);
     }
 
-    let resp = req.send().await?;
+    // without_url: the target URL is a pre-signed link — keep it out of the error message.
+    let resp = req.send().await.map_err(reqwest::Error::without_url)?;
     let status = resp.status().as_u16();
     let content_type = resp
         .headers()
@@ -205,7 +246,11 @@ pub async fn fetch_range(
         .get("Content-Range")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_owned());
-    let body = resp.bytes().await?.to_vec();
+    let body = resp
+        .bytes()
+        .await
+        .map_err(reqwest::Error::without_url)?
+        .to_vec();
 
     Ok(RangeResponse {
         status,
@@ -213,4 +258,44 @@ pub async fn fetch_range(
         content_range,
         body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_urls_strips_reqwest_style_urls() {
+        let msg = "error sending request for url (https://p-def1.pcloud.com/abc/x.mp4?key=s3cr3t)";
+        assert_eq!(redact_urls(msg), "error sending request for url (<url>)");
+    }
+
+    #[test]
+    fn redact_urls_handles_several_urls_and_plain_text() {
+        assert_eq!(
+            redact_urls("a http://x/y b https://z c"),
+            "a <url> b <url> c"
+        );
+        assert_eq!(redact_urls("no url here"), "no url here");
+    }
+
+    #[test]
+    fn random_token_is_32_hex_and_unique() {
+        let a = random_token();
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, random_token());
+    }
+
+    #[test]
+    fn provider_id_round_trips_through_display_and_from_str() {
+        for p in [
+            ProviderId::PCloud,
+            ProviderId::Dropbox,
+            ProviderId::GoogleDrive,
+        ] {
+            assert_eq!(p.to_string().parse::<ProviderId>().unwrap(), p);
+        }
+        assert!("onedrive".parse::<ProviderId>().is_err());
+    }
 }

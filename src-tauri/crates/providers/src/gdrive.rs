@@ -1,5 +1,3 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use serde::Deserialize;
 
 use crate::{DownloadTarget, Entry, ProviderAuth, StorageProvider};
@@ -30,7 +28,10 @@ impl StorageProvider for GDriveClient {
     async fn list_folder(&self, folder_id: &str) -> anyhow::Result<Vec<crate::Entry>> {
         // "root" is Drive's documented alias for the user's root folder — usable directly
         // here, same as any other folder id (cf. lib/providers.ts PROVIDERS.gdrive.rootId).
-        let query = format!("trashed = false and '{folder_id}' in parents");
+        let query = format!(
+            "trashed = false and '{}' in parents",
+            escape_query_literal(folder_id)
+        );
 
         // TODO : handle cursor pagination (nextPageToken)
         let resp: FolderContentsResponse = self
@@ -57,7 +58,10 @@ impl StorageProvider for GDriveClient {
         _transcoded: bool,
     ) -> anyhow::Result<DownloadTarget> {
         Ok(DownloadTarget {
-            url: format!("https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"),
+            url: format!(
+                "https://www.googleapis.com/drive/v3/files/{}?alt=media",
+                crate::oauth::percent_encode(file_id)
+            ),
             headers: vec![(
                 "Authorization".into(),
                 format!("Bearer {}", self.access_token),
@@ -101,9 +105,16 @@ fn map_entry(entry: FolderContentEntry) -> Entry {
 pub struct GDriveAuth;
 
 impl ProviderAuth for GDriveAuth {
-    fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String {
+    fn authorize_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        code_challenge: &str,
+    ) -> String {
         format!(
-            "{AUTH_URL}?client_id={client_id}&redirect_uri={}&response_type=code&scope={}",
+            "{AUTH_URL}?client_id={client_id}&redirect_uri={}&response_type=code&scope={}\
+            &state={state}&code_challenge={code_challenge}&code_challenge_method=S256",
             crate::oauth::percent_encode(redirect_uri),
             // Google's own suggestion of drive.file + drive.metadata.readonly does not
             // work for this app: drive.file grants content access only to files the app
@@ -120,36 +131,29 @@ impl ProviderAuth for GDriveAuth {
         &self,
         code: &str,
         redirect_uri: &str,
+        code_verifier: &str,
         client_id: &str,
         client_secret: &str,
     ) -> anyhow::Result<crate::StoredCredentials> {
-        let resp: TokenResponse = reqwest::Client::new()
-            .post(TOKEN_URL)
-            .form(&[
+        let creds = crate::oauth::request_token(
+            TOKEN_URL,
+            &[
                 ("code", code),
                 ("grant_type", "authorization_code"),
                 ("client_id", client_id),
                 ("client_secret", client_secret),
                 ("redirect_uri", redirect_uri),
-            ])
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+                ("code_verifier", code_verifier),
+            ],
+            None,
+        )
+        .await?;
 
-        Ok(crate::StoredCredentials {
-            access_token: resp.access_token,
-            refresh_token: Some(resp.refresh_token),
-            expires_at: Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + resp.expires_in,
-            ),
-        })
+        anyhow::ensure!(
+            creds.refresh_token.is_some(),
+            "no refresh_token in Google Drive response"
+        );
+        Ok(creds)
     }
 
     async fn refresh(
@@ -160,47 +164,92 @@ impl ProviderAuth for GDriveAuth {
     ) -> anyhow::Result<crate::StoredCredentials> {
         let refresh_token = creds
             .refresh_token
-            .as_ref()
+            .as_deref()
             .ok_or_else(|| anyhow::anyhow!("no refresh token stored for provider"))?;
 
-        let resp: RefreshResponse = reqwest::Client::new()
-            .post(TOKEN_URL)
-            .form(&[
+        crate::oauth::request_token(
+            TOKEN_URL,
+            &[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token),
                 ("client_id", client_id),
                 ("client_secret", client_secret),
-            ])
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-
-        Ok(crate::StoredCredentials {
-            access_token: resp.access_token,
-            refresh_token: creds.refresh_token.clone(),
-            expires_at: Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + resp.expires_in,
-            ),
-        })
+            ],
+            Some(refresh_token),
+        )
+        .await
     }
 }
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: String,
-    expires_in: u64,
+/// Escape a value for a single-quoted string literal in a Drive `q` query
+/// (https://developers.google.com/drive/api/guides/ref-search-terms): `\` and `'` are
+/// backslash-escaped, so a crafted folder id can't close the literal and add clauses.
+fn escape_query_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-#[derive(Deserialize)]
-struct RefreshResponse {
-    access_token: String,
-    expires_in: u64,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_query_literal_neutralises_quotes_and_backslashes() {
+        assert_eq!(escape_query_literal("root"), "root");
+        assert_eq!(
+            escape_query_literal("x' in parents or 'a"),
+            "x\\' in parents or \\'a"
+        );
+        assert_eq!(escape_query_literal("a\\'b"), "a\\\\\\'b");
+    }
+
+    #[test]
+    fn map_entry_detects_folders_and_parses_string_size() {
+        let folder = map_entry(FolderContentEntry {
+            id: "1".into(),
+            name: "f".into(),
+            mime_type: "application/vnd.google-apps.folder".into(),
+            size: None,
+        });
+        assert!(folder.is_folder);
+
+        let file = map_entry(FolderContentEntry {
+            id: "2".into(),
+            name: "a.mp3".into(),
+            mime_type: "audio/mpeg".into(),
+            size: Some("1234".into()),
+        });
+        assert!(!file.is_folder);
+        assert_eq!(file.size, Some(1234));
+    }
+
+    #[test]
+    fn map_entry_ignores_unparseable_size() {
+        let e = map_entry(FolderContentEntry {
+            id: "3".into(),
+            name: "x".into(),
+            mime_type: "text/plain".into(),
+            size: Some("n/a".into()),
+        });
+        assert_eq!(e.size, None);
+    }
+
+    #[test]
+    fn authorize_url_carries_state_pkce_and_readonly_scope() {
+        let url = GDriveAuth.authorize_url("cid", "http://localhost:1/cb", "st", "ch");
+        assert!(url.starts_with(AUTH_URL));
+        assert!(url.contains("&state=st&"));
+        assert!(url.contains("code_challenge=ch&code_challenge_method=S256"));
+        assert!(url.contains("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.readonly"));
+    }
+
+    #[tokio::test]
+    async fn resolve_download_url_sends_token_as_header_not_in_url() {
+        let client = GDriveClient::new("tok".into()).unwrap();
+        let target = client.resolve_download_url("fid", false).await.unwrap();
+        assert!(!target.url.contains("tok"));
+        assert_eq!(
+            target.headers,
+            vec![("Authorization".to_owned(), "Bearer tok".to_owned())]
+        );
+    }
 }

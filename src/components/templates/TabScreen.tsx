@@ -33,6 +33,18 @@ type TabScreenProps = {
   tab: TabSet;
 };
 
+function TabLoadError({ message }: { message: string | undefined }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="text-center text-fg2 text-sm">
+      Impossible de charger la tablature : {message}
+    </div>
+  );
+}
+
 export default function TabScreen({ lesson, chapter, method, tab }: TabScreenProps) {
   const [loop, setLoop] = useState(false);
   const [metro, setMetro] = useState(true);
@@ -54,6 +66,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     notatedBpmRef,
     notatedBpm,
     scoreLoadedRef,
+    loadError: tabLoadError,
     trackBpmRef,
     leadInMsRef,
   } = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId, method.source.provider);
@@ -162,6 +175,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               </div>
             </div>
             <div className="flex flex-col gap-6">
+              <TabLoadError message={tabLoadError} />
               <div ref={tabElmt} className="scroll flex w-full flex-1 justify-center" />
             </div>
           </div>

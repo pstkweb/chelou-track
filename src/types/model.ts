@@ -3,6 +3,8 @@
 export type Provider = 'pcloud' | 'gdrive' | 'dropbox';
 
 export interface Method {
+  /** On-disk manifest format version — rewritten by Rust on every save (SCHEMA_VERSION). */
+  schemaVersion: number;
   id: string;
   title: string;
   source: { provider: Provider; rootFolderId: string };

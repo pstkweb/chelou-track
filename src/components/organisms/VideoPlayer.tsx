@@ -202,10 +202,10 @@ export default function VideoPlayer({
               if (e.key === 'Enter') e.stopPropagation();
             }}
           >
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: équivalent clavier = flèches gauche/droite sur le lecteur (handleKeyboard) */}
             <div
               ref={progressContainerRef}
               onClick={handleScrub}
-              onKeyDown={() => {}}
               className="relative mb-0 h-1.5 cursor-pointer rounded-full bg-[rgba(255,255,255,.25)]"
             >
               <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />

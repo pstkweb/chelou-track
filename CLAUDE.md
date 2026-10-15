@@ -38,7 +38,7 @@ npx tsc --noEmit
 ## Stack
 
 - **Tauri v2** (Rust backend + WebView2 sur Windows), frontend TypeScript + Vite.
-- **AlphaTab** (`@coderline/alphatab@1.8.3`) pour le rendu et la synchro des tablatures GuitarPro.
+- **AlphaTab** (`@coderline/alphatab@1.8.4`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
 - **Balise `<audio>`** pointée sur `stream://audio/{id}` pour la lecture des backing tracks (streaming progressif, `playbackRate` natif). **Web Audio API** (`AudioContext` / `decodeAudioData`) réservée à un usage ponctuel : l'analyse du silence de tête d'un track, pas la lecture.
 - **reqwest** côté Rust pour les appels pCloud + streaming Range.
@@ -74,6 +74,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance via keyring-core (store par OS) |
 | `src/providers/mod.rs` | Registre : enum `ProviderClient`/`ProviderAuthClient` (dispatch par `match`, un bras par provider) + `make_client`/`make_auth` |
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
+| `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>`/`<audio>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
@@ -86,12 +87,14 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib.rs` | Types neutres (`Entry`, `FolderContents`, `RangeResponse`), `ProviderId` (Display/FromStr), traits `StorageProvider`/`ProviderAuth`, `StoredCredentials`, `fetch_range` (fonction libre) |
+| `src/lib.rs` | Types neutres (`Entry`, `RangeResponse`, `DownloadTarget`), `ProviderId` (Display/FromStr), traits `StorageProvider`/`ProviderAuth`, `StoredCredentials`, `fetch_range` (fonction libre), `random_token`, `redact_urls` (toute erreur renvoyée au WebView passe par là) |
 | `src/scanner.rs` | Scan DFS générique (`scan_tree`/`scan_methods_in_folder<P: StorageProvider>`) : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` — indépendant du provider |
-| `src/oauth.rs` | Boucle loopback OAuth partagée (`bind_loopback`, `wait_for_token`) — mécanique HTTP générique, aucune connaissance d'un provider particulier |
-| `src/pcloud.rs` | Adapter pCloud : `PCloudClient`/`PCloudAuth`, `map_entry`/`map_folder`, impls `StorageProvider` + `ProviderAuth` |
+| `src/oauth.rs` | Boucle loopback OAuth partagée (`bind_loopback`, `wait_for_code`) avec `state` anti-CSRF + PKCE S256, et `request_token` (échange/refresh sur un token endpoint RFC 6749 standard) — aucune connaissance d'un provider particulier |
+| `src/registry.rs` | Enums `ProviderClient`/`ProviderAuthClient` (dispatch par `match`) + `make_client`/`make_auth` |
+| `src/pcloud.rs` | Adapter pCloud : `PCloudClient`/`PCloudAuth`, `map_entry`, impls `StorageProvider` + `ProviderAuth` (pas de PKCE côté pCloud) |
+| `src/dropbox.rs`, `src/gdrive.rs` | Adapters Dropbox / Google Drive (Drive masqué dans l'UI, cf. `ProviderId::GoogleDrive`) |
 
-Tous les providers (pCloud et Dropbox aujourd'hui, Google Drive à venir) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à trois sous-crates permet de tester le modèle, la persistance et la logique provider — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit).
+Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à trois sous-crates permet de tester le modèle, la persistance et la logique provider — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit).
 
 **`src-tauri/crates/keyring-dpapi-store/`** (sous-crate `keyring-dpapi-store` — dépendances : `keyring-core` + `windows-dpapi`, zéro dépendance Tauri, Windows uniquement)
 
@@ -105,7 +108,7 @@ Tous les providers (pCloud et Dropbox aujourd'hui, Google Drive à venir) vivent
 |---|---|
 | `types/model.ts` | Interfaces du modèle (§8 ARCHITECTURE.md) — source de vérité TS |
 | `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider` |
-| `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://audio/{provider}/{id}`, etc. |
+| `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://audio/{provider}/{id}`, etc. (serveur loopback + jeton sur Linux, `initMediaToken` appelé avant le premier rendu) ; `fetchStream` = `fetch` qui rejette sur statut non-2xx |
 | `lib/providers.ts` | Registre `PROVIDERS` (label, icône par `Provider`) — source unique pour l'UI (ConnectScreen, FolderPicker, TitleBar) |
 | `lib/silence-detection.ts` | Détection du silence de tête d'un backing track (`decodeAudioData` + analyse d'amplitude) |
 | `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |
@@ -166,7 +169,7 @@ fonction nécessite Tauri pour compiler, la refacto vers un sous-crate est la r�
 
 ## Règles non négociables
 
-1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout transite par Rust via `stream://` ou `invoke()` — règle uniforme quel que soit le provider connecté, pas seulement une conséquence de la contrainte pCloud ci-dessous (cf. `docs/ARCHITECTURE.md` §3).
+1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout transite par Rust via `stream://` ou `invoke()` — règle uniforme quel que soit le provider connecté, pas seulement une conséquence de la contrainte pCloud ci-dessous (cf. `docs/ARCHITECTURE.md` §3). Ça vaut aussi pour les **messages d'erreur** : reqwest met l'URL (lien pré-signé) dans son `Display` — passer par `redact_urls` / `public_err` avant de renvoyer une erreur au WebView.
 2. **Endpoint pCloud EU : `eapi.pcloud.com`** (jamais l'endpoint US `api.pcloud.com`). Spécifique à pCloud — ne généralise pas aux autres providers.
 3. **L'audio est l'horloge maître ; AlphaTab est piloté.** Voir boucle ci-dessus.
 4. **AlphaTab est l'unique moteur de tablature.** Jamais de PDF dans la vue synchro.
@@ -174,7 +177,7 @@ fonction nécessite Tauri pour compiler, la refacto vers un sous-crate est la r�
 
 ## APIs vérifiées (ne pas deviner depuis la mémoire)
 
-### AlphaTab 1.8.3
+### AlphaTab 1.8.4
 
 ```typescript
 import * as alphaTab from '@coderline/alphatab';

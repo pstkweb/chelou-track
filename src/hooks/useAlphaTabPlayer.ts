@@ -32,6 +32,7 @@ export default function useAlphaTabPlayer(
   // hooks) — la ref seule ne déclenche pas de re-render quand le score se charge.
   const [notatedBpm, setNotatedBpm] = useState(120);
   const scoreLoadedRef = useRef<Promise<void>>(new Promise(() => {}));
+  const [loadError, setLoadError] = useState<string | undefined>(undefined);
   // Renseignés par l'appelant (TabScreen) à chaque changement de backing track — lus par
   // seekTo() ci-dessous pour convertir un temps "noté" (domaine AlphaTab) en temps audio réel.
   const trackBpmRef = useRef<number | undefined>(undefined);
@@ -72,15 +73,29 @@ export default function useAlphaTabPlayer(
     });
     alphaTabRef.current = instance;
 
+    setLoadError(undefined);
     let resolveScoreLoaded: () => void = () => {};
-    scoreLoadedRef.current = new Promise((resolve) => {
+    let rejectScoreLoaded: (reason: Error) => void = () => {};
+    scoreLoadedRef.current = new Promise((resolve, reject) => {
       resolveScoreLoaded = resolve;
+      rejectScoreLoaded = reject;
     });
+    // Marque le rejet comme géré : sans consommateur en attente (aucun track à analyser),
+    // un échec de chargement remonterait sinon en "unhandled rejection".
+    scoreLoadedRef.current.catch(() => {});
     instance.scoreLoaded.on((score) => {
       beatsPerBarRef.current = score.masterBars[0]?.timeSignatureNumerator ?? 4;
       notatedBpmRef.current = score.tempo || 120;
       setNotatedBpm(score.tempo || 120);
       resolveScoreLoaded();
+    });
+    // Fichier introuvable/illisible ou format non supporté : sans ça, écran vide et
+    // scoreLoadedRef jamais résolue (useLeadInDetection bloqué). Sans effet sur une promesse
+    // déjà résolue si l'erreur survient plus tard (rendu).
+    instance.error.on((error) => {
+      console.error('AlphaTab error', error);
+      setLoadError(error.message || String(error));
+      rejectScoreLoaded(error);
     });
 
     if (audio) {
@@ -161,6 +176,7 @@ export default function useAlphaTabPlayer(
     notatedBpmRef,
     notatedBpm,
     scoreLoadedRef,
+    loadError,
     trackBpmRef,
     leadInMsRef,
   };

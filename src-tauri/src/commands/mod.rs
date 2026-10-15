@@ -1,7 +1,7 @@
 // Tauri commands — the only surface the frontend can call via invoke().
 // Token never leaves Rust (cf. ARCHITECTURE.md §3 + §5).
 use anyhow::{anyhow, Result};
-use chelou_providers::oauth::{bind_loopback, wait_for_token};
+use chelou_providers::oauth::{bind_loopback, wait_for_code};
 use chelou_providers::{
     DownloadTarget, Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials,
 };
@@ -68,6 +68,14 @@ pub struct AppState {
     /// DNS+TCP+TLS-handshake cost with zero connection reuse — expensive if paid on every media
     /// request instead of once per session/token.
     pub client_cache: Mutex<Option<(ProviderId, String, Arc<ProviderClient>)>>,
+    /// Per-session secret the Linux loopback media server requires on every request (cf.
+    /// media_server.rs). `None` on the other platforms, which don't run that server.
+    pub media_token: Option<String>,
+}
+
+/// Error message safe to hand to the WebView: provider URLs (pre-signed links) redacted.
+fn public_err(e: impl std::fmt::Display) -> String {
+    chelou_providers::redact_urls(&format!("{e:#}"))
 }
 
 /// Get (building + caching if needed) the `ProviderClient` for `provider`/`credentials`.
@@ -133,31 +141,36 @@ fn open_browser(url: &str) -> std::io::Result<()> {
 #[tauri::command]
 pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<(), String> {
     let (client_id, client_secret) = client_credentials(provider);
-    let session = bind_loopback().await.map_err(|e| e.to_string())?;
-    let auth_url = make_auth(provider).authorize_url(client_id, &session.redirect_uri);
+    let session = bind_loopback().await.map_err(public_err)?;
+    let auth_url = make_auth(provider).authorize_url(
+        client_id,
+        &session.redirect_uri,
+        &session.state,
+        &session.code_challenge(),
+    );
 
     open_browser(&auth_url).map_err(|e| format!("failed to open browser: {e}"))?;
 
     // Block until the user completes auth in the browser or the 5-minute timeout elapses.
-    let redirect_uri = session.redirect_uri.clone();
-    let token = wait_for_token(session).await.map_err(|e| e.to_string());
+    let code = wait_for_code(&session).await.map_err(public_err)?;
 
     let credentials = make_auth(provider)
         .exchange_code(
-            token.as_ref().map_err(|e| e.to_string())?,
-            &redirect_uri,
+            &code,
+            &session.redirect_uri,
+            &session.code_verifier,
             client_id,
             client_secret,
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(public_err)?;
 
     app.state::<AppState>()
         .auth
         .lock()
         .unwrap()
         .save(provider, credentials)
-        .map_err(|e| e.to_string())?;
+        .map_err(public_err)?;
 
     let _ = app.emit("oauth:complete", ());
 
@@ -166,12 +179,13 @@ pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<
 
 #[tauri::command]
 pub async fn logout(state: State<'_, AppState>) -> Result<(), String> {
-    state
-        .auth
-        .lock()
-        .unwrap()
-        .clear()
-        .map_err(|e| e.to_string())
+    state.auth.lock().unwrap().clear().map_err(public_err)
+}
+
+/// Token for the Linux loopback media server (`None` elsewhere) — see `AppState::media_token`.
+#[tauri::command]
+pub fn get_media_token(state: State<'_, AppState>) -> Option<String> {
+    state.media_token.clone()
 }
 
 #[tauri::command]
@@ -189,20 +203,20 @@ pub async fn list_folder(
 ) -> Result<Vec<Entry>, String> {
     let credentials = get_or_refresh_credentials(state.clone())
         .await
-        .map_err(|e| e.to_string())?;
-    let client = get_or_create_client(&state, provider, &credentials).map_err(|e| e.to_string())?;
+        .map_err(public_err)?;
+    let client = get_or_create_client(&state, provider, &credentials).map_err(public_err)?;
 
     client
         .list_folder(folder_id.as_str())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 // --- Catalogue / manifest ---
 
 #[tauri::command]
 pub async fn list_methods(state: State<'_, AppState>) -> Result<Vec<Method>, String> {
-    state.manifest.load_all().map_err(|e| e.to_string())
+    state.manifest.load_all().map_err(public_err)
 }
 
 #[tauri::command]
@@ -214,8 +228,8 @@ pub async fn scan_method(
 ) -> Result<Vec<Method>, String> {
     let credentials = get_or_refresh_credentials(state.clone())
         .await
-        .map_err(|e| e.to_string())?;
-    let client = get_or_create_client(&state, provider, &credentials).map_err(|e| e.to_string())?;
+        .map_err(public_err)?;
+    let client = get_or_create_client(&state, provider, &credentials).map_err(public_err)?;
 
     let on_progress = Arc::new(move |event: chelou_providers::ScanEvent| {
         let _ = app.emit("scan:progress", event);
@@ -223,17 +237,17 @@ pub async fn scan_method(
 
     chelou_providers::scan_methods_in_folder(&*client, root_folder_id.as_str(), on_progress)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 #[tauri::command]
 pub async fn save_method(state: State<'_, AppState>, method: Method) -> Result<(), String> {
-    state.manifest.save(&method).map_err(|e| e.to_string())
+    state.manifest.save(&method).map_err(public_err)
 }
 
 #[tauri::command]
 pub async fn delete_method(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.manifest.delete(&id).map_err(|e| e.to_string())
+    state.manifest.delete(&id).map_err(public_err)
 }
 
 // --- Progress ---
@@ -247,7 +261,7 @@ pub async fn mark_lesson_seen(
     state
         .manifest
         .mark_lesson_seen(&method_id, &lesson_id)
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 #[tauri::command]
@@ -259,7 +273,7 @@ pub async fn mark_lesson_unseen(
     state
         .manifest
         .mark_lesson_unseen(&method_id, &lesson_id)
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 #[tauri::command]
@@ -272,7 +286,7 @@ pub async fn update_lesson_resume(
     state
         .manifest
         .update_lesson_resume(&method_id, &lesson_id, resume_ms)
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 #[tauri::command]
@@ -286,7 +300,7 @@ pub async fn update_backing_track_lead_in_override(
     state
         .manifest
         .update_backing_track_lead_in_override(&method_id, &lesson_id, file_id, lead_in_ms)
-        .map_err(|e| e.to_string())
+        .map_err(public_err)
 }
 
 pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<StoredCredentials> {

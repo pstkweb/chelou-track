@@ -1,6 +1,20 @@
 import { useEffect, useRef } from 'react';
 
-const metronome = new AudioContext();
+// Créé à la première lecture plutôt qu'au chargement du module : un AudioContext créé avant
+// tout geste utilisateur démarre en état "suspended" (politique autoplay de Chromium/WebView2)
+// et reste muet tant qu'on ne l'a pas resume().
+let metronome: AudioContext | null = null;
+
+function metronomeContext(): AudioContext {
+  metronome ??= new AudioContext();
+
+  if (metronome.state === 'suspended') {
+    // Fire-and-forget : appelé depuis onPlay (lecture lancée par un clic), donc autorisé.
+    void metronome.resume();
+  }
+
+  return metronome;
+}
 
 function playWoodTick(ctx: AudioContext, when = ctx.currentTime, accent = false, volume = 1) {
   // volume=0 court-circuité avant de créer le moindre noeud : en plus d'éviter du travail
@@ -109,7 +123,8 @@ export default function useMetronome(bpm: number | undefined, enabled: boolean, 
     lastBeatRef.current = beatIndex;
 
     const isDownbeat = beatsPerBar > 0 && beatIndex % beatsPerBar === 0;
-    playWoodTick(metronome, metronome.currentTime, isDownbeat, volumeRef.current);
+    const ctx = metronomeContext();
+    playWoodTick(ctx, ctx.currentTime, isDownbeat, volumeRef.current);
   };
 
   // À appeler quand la lecture redémarre depuis une nouvelle position (play, seek, reset) :
@@ -117,6 +132,9 @@ export default function useMetronome(bpm: number | undefined, enabled: boolean, 
   // avant l'arrêt, le premier temps de la reprise serait silencieusement sauté.
   const reset = () => {
     lastBeatRef.current = null;
+    // Appelé au démarrage de chaque lecture (onPlay) : crée/réveille le contexte audio
+    // pendant l'activation utilisateur, avant le premier tick.
+    metronomeContext();
   };
 
   return { tick, reset };

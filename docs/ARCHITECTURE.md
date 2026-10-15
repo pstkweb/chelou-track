@@ -50,6 +50,17 @@ Electron a été explicitement écarté.
 4. **AlphaTab est l'unique moteur de tablature.** Ne pas tenter d'afficher le PDF dans la
    vue synchro : un PDF est figé, sans notion de position musicale.
 
+Corollaires de la contrainte 1 :
+- **Erreurs :** le `Display` d'une erreur reqwest contient l'URL de la requête — pour pCloud/
+  Dropbox, un lien pré-signé qui vaut un token. Toute erreur qui sort vers le WebView (commandes
+  `invoke()`, corps des réponses `stream://` et du serveur média Linux) passe par
+  `chelou_providers::redact_urls`, et les requêtes de téléchargement utilisent
+  `reqwest::Error::without_url`.
+- **CSP** (`tauri.conf.json`) : `connect-src`/`media-src`/`img-src` limités à `'self'`, à l'IPC
+  Tauri, à `stream:` et au serveur média loopback — une XSS ne peut rien exfiltrer ailleurs.
+  Le CSP n'est pas appliqué en `tauri dev` desktop (la page vient directement de Vite) : le
+  tester sur un build.
+
 ## 4. Streaming — protocole URI custom
 
 Ne jamais servir une URL pCloud directement au WebView. Implémenter un **protocole custom**
@@ -72,6 +83,15 @@ redemande le même `fileId` en mode transcodé → Rust route vers `getvideolink
 bitrate/résolution réduits) au lieu de `getfilelink`. Côté `stream://`, c'est un simple
 paramètre supplémentaire. Coût nul si jamais déclenché. **Ne pas** sonder les codecs à
 l'import : on laisse échouer puis on rattrape.
+
+**Exception Linux — serveur loopback (`src-tauri/src/media_server.rs`).** Le backend média
+GStreamer de WebKitGTK ne sait pas charger `<video>`/`<audio>` depuis un schéma custom (bug
+WebKit non corrigé, cf. en-tête du module). Sur Linux uniquement, vidéo et audio passent donc
+par `http://127.0.0.1:47812`. Un port loopback étant joignable par tout processus local **et
+par n'importe quelle page web ouverte dans le navigateur**, deux gardes sont obligatoires :
+chaque requête porte `?t=<jeton>` (128 bits aléatoires par session, servi au WebView par la
+commande `get_media_token`, 403 sinon), et le CORS n'est accordé qu'à l'origine de l'app
+(`tauri://localhost`, plus `http://localhost:1420` en debug), jamais `*`.
 
 Le `.wav` : streamé via `<audio src="stream://audio/{fileId}">`, même mécanisme Range que la
 vidéo — lecture immédiate sans attendre le téléchargement complet. Seule exception : la
@@ -99,6 +119,9 @@ Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
   maison plutôt que Credential Manager, réservé à Windows où keyring-core n'a pas
   d'équivalent natif sans plafond. macOS et Linux utilisent leurs stores keyring-core
   standards (Keychain, Secret Service), sans cette contrainte de taille connue.
+- Flux OAuth loopback (RFC 8252) avec `state` anti-CSRF vérifié au callback et PKCE S256
+  (Dropbox, Google ; pCloud ne documente que `state`). Les secrets clients restent compilés
+  dans le binaire — inévitable pour une app desktop (« client public »), assumé.
 - Client API pCloud, endpoint EU (`eapi.pcloud.com`) : listing de dossiers (catalogue),
   `getfilelink` / `getvideolink`.
 - Handler du protocole `stream://` (Range + fallback transcodé).
@@ -224,6 +247,7 @@ de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
 
 ```ts
 interface Method {
+  schemaVersion: number;          // version du format sur disque (SCHEMA_VERSION côté Rust)
   id: string;
   title: string;
   source: { provider: 'pcloud' | 'gdrive' | 'dropbox'; rootFolderId: string };
@@ -272,6 +296,13 @@ interface FileRef { fileId: string; name: string; }
   de requêter.
 - Le manifeste porte tout ce qui ne peut pas vivre sur pCloud : `leadIn`, ordre, titres
   corrigés, `defaultCountInBars`, overrides éventuels.
+- **Robustesse :** écriture atomique (fichier temporaire + `fsync` + `rename`), écritures
+  sérialisées par un mutex (les mises à jour sont des read-modify-write concurrents), `id`
+  validé (`[A-Za-z0-9_-]+`, il vient du WebView et sert de nom de fichier).
+- **`schemaVersion`** : réécrit à `SCHEMA_VERSION` à chaque sauvegarde ; absent = 0 (fichiers
+  d'avant le versioning). Un fichier illisible ou d'une version plus récente est ignoré au
+  chargement (log stderr) **sans être modifié**, pour qu'une version plus récente de l'app
+  puisse toujours le lire. Incrémenter `SCHEMA_VERSION` à tout changement cassant du format.
 
 ## 10. Section documents (séparée de la synchro)
 

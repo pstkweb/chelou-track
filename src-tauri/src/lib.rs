@@ -45,16 +45,22 @@ pub fn run() {
 
             #[cfg(target_os = "windows")]
             keyring_core::set_default_store(keyring_dpapi_store::Store::new(app_dir.clone()));
+            // No panic if the OS store is unavailable (e.g. Linux without a Secret Service on
+            // D-Bus): the app still starts, and the login attempt surfaces keyring-core's
+            // "no default store" error in the UI instead of the process aborting at launch.
             #[cfg(target_os = "macos")]
-            keyring_core::set_default_store(
-                apple_native_keyring_store::keychain::Store::new()
-                    .expect("failed to init macOS keychain store"),
-            );
+            match apple_native_keyring_store::keychain::Store::new() {
+                Ok(store) => keyring_core::set_default_store(store),
+                Err(e) => eprintln!("keyring: macOS keychain unavailable, login disabled: {e}"),
+            }
             #[cfg(target_os = "linux")]
-            keyring_core::set_default_store(
-                zbus_secret_service_keyring_store::Store::new()
-                    .expect("failed to init Secret Service store"),
-            );
+            match zbus_secret_service_keyring_store::Store::new() {
+                Ok(store) => keyring_core::set_default_store(store),
+                Err(e) => eprintln!(
+                    "keyring: Secret Service unavailable (is gnome-keyring/KWallet running?), \
+                    login disabled: {e}"
+                ),
+            }
 
             let mut auth = auth::AuthStore::new();
             // Restore token from the credential store (normal path).
@@ -66,6 +72,7 @@ pub fn run() {
                 http: reqwest::Client::new(),
                 url_cache: Mutex::new(HashMap::new()),
                 client_cache: Mutex::new(None),
+                media_token: cfg!(target_os = "linux").then(chelou_providers::random_token),
             });
 
             #[cfg(target_os = "linux")]
@@ -77,6 +84,7 @@ pub fn run() {
             commands::oauth_start,
             commands::logout,
             commands::get_auth_status,
+            commands::get_media_token,
             commands::list_folder,
             commands::list_methods,
             commands::scan_method,

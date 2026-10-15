@@ -4,7 +4,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { Provider } from '@/types/model';
-import { docUrl } from './stream';
+import { docUrl, fetchStream } from './stream';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -13,7 +13,7 @@ export async function loadPdfDocument(
   provider: Provider,
   fileId: string,
 ): Promise<PDFDocumentProxy> {
-  const res = await fetch(docUrl(provider, fileId));
+  const res = await fetchStream(docUrl(provider, fileId));
   const data = await res.arrayBuffer();
   return pdfjsLib.getDocument({ data }).promise;
 }

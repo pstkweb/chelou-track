@@ -11,7 +11,7 @@
 // against two real files (160bpm: the old approach detected the full band entrance 1.5s late,
 // instead of the count-in's first click; 80bpm, which already worked, is unaffected).
 
-import { audioUrl } from '@/lib/stream';
+import { audioUrl, fetchStream } from '@/lib/stream';
 import type { Provider } from '@/types/model';
 
 export const WINDOW_MS = 20;
@@ -113,7 +113,7 @@ export async function detectLeadingSilence(
   provider: Provider,
   fileId: string,
 ): Promise<number | undefined> {
-  const bytes = await fetch(audioUrl(provider, fileId)).then((r) => r.arrayBuffer());
+  const bytes = await fetchStream(audioUrl(provider, fileId)).then((r) => r.arrayBuffer());
   const ctx = new AudioContext();
   try {
     const buffer = await ctx.decodeAudioData(bytes);

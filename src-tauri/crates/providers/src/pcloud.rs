@@ -111,9 +111,16 @@ fn map_entry(entry: pcloud::entry::Entry) -> Entry {
 pub struct PCloudAuth;
 
 impl ProviderAuth for PCloudAuth {
-    fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String {
+    // pCloud documents `state` but not PKCE: code_challenge/code_verifier are ignored.
+    fn authorize_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        _code_challenge: &str,
+    ) -> String {
         format!(
-            "{AUTH_URL}?client_id={client_id}&response_type=code&redirect_uri={}",
+            "{AUTH_URL}?client_id={client_id}&response_type=code&redirect_uri={}&state={state}",
             crate::oauth::percent_encode(redirect_uri),
         )
     }
@@ -122,6 +129,7 @@ impl ProviderAuth for PCloudAuth {
         &self,
         code: &str,
         redirect_uri: &str,
+        _code_verifier: &str,
         client_id: &str,
         client_secret: &str,
     ) -> Result<crate::StoredCredentials> {

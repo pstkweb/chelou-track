@@ -18,7 +18,8 @@ pub fn handle<R: Runtime>(
         match handle_inner(&app, &request).await {
             Ok(response) => responder.respond(response),
             Err(e) => {
-                let body = e.to_string().into_bytes();
+                // Redacted: the body reaches the WebView, and a provider URL is a credential.
+                let body = chelou_providers::redact_urls(&format!("{e:#}")).into_bytes();
                 responder.respond(
                     tauri::http::Response::builder()
                         .status(500)

@@ -34,6 +34,20 @@ export default function LibraryScreen() {
     getAuthStatus().then(setActiveProvider);
   }, []);
 
+  // Échap ferme la modale d'ajout — équivalent clavier du clic sur le fond.
+  useEffect(() => {
+    if (!isAdding) {
+      return;
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsAdding(false);
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isAdding]);
+
   const handleDelete = async (method: Method) => {
     try {
       await remove(method);
@@ -82,14 +96,15 @@ export default function LibraryScreen() {
       </div>
 
       {isAdding && activeProvider && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: clic sur le fond = fermeture souris ; au clavier, Échap (effet ci-dessus) ou le bouton Fermer
         <div
           role="dialog"
           aria-modal
           onClick={() => setIsAdding(false)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6 backdrop-blur-xs"
-          onKeyDown={() => {}}
         >
-          <div onClick={(e) => e.stopPropagation()} className="relative" onKeyDown={() => {}}>
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: bouclier stopPropagation (un clic dans le picker ne ferme pas la modale), pas une action */}
+          <div onClick={(e) => e.stopPropagation()} className="relative">
             <IconButton
               onClick={() => setIsAdding(false)}
               title="Fermer"

@@ -1,5 +1,6 @@
 import { Maximize2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { activateOnKey } from '@/lib/a11y';
 import type { DocumentRef, Method } from '@/types/model';
 import Badge from '../atoms/Badge';
 import IconButton from '../atoms/IconButton';
@@ -31,11 +32,14 @@ export default function DocumentsScreen({ method }: DocumentsScreenProps) {
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-(--gap)">
           {method.documents.map((doc) => (
+            // biome-ignore lint/a11y/useSemanticElements: contenu en blocs (aperçu, badges), non autorisé dans un <button>
             <div
               key={doc.file.fileId}
+              role="button"
+              tabIndex={0}
               className="card transform-none cursor-pointer overflow-hidden border-border p-0 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border2"
               onClick={() => setOpenedDoc(doc)}
-              onKeyUp={() => {}}
+              onKeyDown={activateOnKey(() => setOpenedDoc(doc))}
               title="Double-clic pour ouvrir"
             >
               <div className="relative aspect-4/3">

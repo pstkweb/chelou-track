@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::collections::HashMap;
 
 use serde::Deserialize;
 
@@ -125,9 +122,16 @@ fn map_entry(entry: FolderContentEntry) -> Entry {
 pub struct DropboxAuth;
 
 impl ProviderAuth for DropboxAuth {
-    fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String {
+    fn authorize_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        code_challenge: &str,
+    ) -> String {
         format!(
-            "{AUTH_URL}?client_id={client_id}&redirect_uri={}&token_access_type=offline&response_type=code",
+            "{AUTH_URL}?client_id={client_id}&redirect_uri={}&token_access_type=offline&response_type=code\
+            &state={state}&code_challenge={code_challenge}&code_challenge_method=S256",
             crate::oauth::percent_encode(redirect_uri)
         )
     }
@@ -136,36 +140,29 @@ impl ProviderAuth for DropboxAuth {
         &self,
         code: &str,
         redirect_uri: &str,
+        code_verifier: &str,
         client_id: &str,
         client_secret: &str,
     ) -> anyhow::Result<crate::StoredCredentials> {
-        let resp: TokenResponse = reqwest::Client::new()
-            .post(TOKEN_URL)
-            .form(&[
+        let creds = crate::oauth::request_token(
+            TOKEN_URL,
+            &[
                 ("code", code),
                 ("grant_type", "authorization_code"),
                 ("client_id", client_id),
                 ("client_secret", client_secret),
                 ("redirect_uri", redirect_uri),
-            ])
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+                ("code_verifier", code_verifier),
+            ],
+            None,
+        )
+        .await?;
 
-        Ok(crate::StoredCredentials {
-            access_token: resp.access_token,
-            refresh_token: Some(resp.refresh_token),
-            expires_at: Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + resp.expires_in,
-            ),
-        })
+        anyhow::ensure!(
+            creds.refresh_token.is_some(),
+            "no refresh_token in Dropbox response"
+        );
+        Ok(creds)
     }
 
     async fn refresh(
@@ -174,44 +171,67 @@ impl ProviderAuth for DropboxAuth {
         client_id: &str,
         client_secret: &str,
     ) -> anyhow::Result<crate::StoredCredentials> {
-        let resp: RefreshResponse = reqwest::Client::new()
-            .post(TOKEN_URL)
-            .form(&[
+        let refresh_token = creds
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no refresh token stored for provider"))?;
+
+        crate::oauth::request_token(
+            TOKEN_URL,
+            &[
                 ("grant_type", "refresh_token"),
-                ("refresh_token", creds.refresh_token.as_ref().unwrap()),
+                ("refresh_token", refresh_token),
                 ("client_id", client_id),
                 ("client_secret", client_secret),
-            ])
-            .timeout(Duration::from_secs(30))
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
-
-        Ok(crate::StoredCredentials {
-            access_token: resp.access_token,
-            refresh_token: creds.refresh_token.clone(),
-            expires_at: Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + resp.expires_in,
-            ),
-        })
+            ],
+            Some(refresh_token),
+        )
+        .await
     }
 }
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: String,
-    expires_in: u64,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[derive(Deserialize)]
-struct RefreshResponse {
-    access_token: String,
-    expires_in: u64,
+    fn entry(tag: &str, size: Option<u64>) -> FolderContentEntry {
+        FolderContentEntry {
+            entry_type: tag.to_owned(),
+            id: "id:abc".to_owned(),
+            name: "x".to_owned(),
+            size,
+        }
+    }
+
+    #[test]
+    fn map_entry_file_keeps_size() {
+        let e = map_entry(entry("file", Some(42)));
+        assert!(!e.is_folder);
+        assert_eq!(e.size, Some(42));
+        assert_eq!(e.id, "id:abc");
+    }
+
+    #[test]
+    fn map_entry_folder_drops_size() {
+        let e = map_entry(entry("folder", Some(42)));
+        assert!(e.is_folder);
+        assert_eq!(e.size, None);
+    }
+
+    #[test]
+    fn map_entry_unknown_tag_is_not_a_folder() {
+        // e.g. "deleted" entries
+        assert!(!map_entry(entry("deleted", None)).is_folder);
+    }
+
+    #[test]
+    fn authorize_url_carries_state_pkce_and_offline_access() {
+        let url = DropboxAuth.authorize_url("cid", "http://localhost:1/cb", "st", "ch");
+        assert!(url.starts_with(AUTH_URL));
+        assert!(url.contains("client_id=cid"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcb"));
+        assert!(url.contains("&state=st&"));
+        assert!(url.contains("code_challenge=ch&code_challenge_method=S256"));
+        assert!(url.contains("token_access_type=offline"));
+    }
 }

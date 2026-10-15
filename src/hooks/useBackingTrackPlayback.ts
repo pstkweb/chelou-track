@@ -54,6 +54,15 @@ export default function useBackingTrackPlayback(
     }
   };
 
+  // trackBpm / notatedBpm — cf. le commentaire de la mise à l'échelle en fin de onTimeUpdate.
+  const tempoScale = () =>
+    (backingTrackSpeed?.bpm || notatedBpmRef.current) / notatedBpmRef.current;
+
+  // Position du curseur hors lecture (seek pendant la pause) : dans le silence de tête ou le
+  // count-in, curseur sur la 1ère note, comme pendant la lecture.
+  const pausedCursorMs = (audioMs: number, leadInMs: number | undefined) =>
+    leadInMs === undefined ? audioMs : Math.max(0, (audioMs - leadInMs) * tempoScale());
+
   const onTimeUpdate = () => {
     const audio = audioElmt.current;
     const api = alphaTabRef.current;
@@ -64,19 +73,22 @@ export default function useBackingTrackPlayback(
       return;
     }
 
-    if (audio.paused) {
-      // Un dernier timeupdate peut arriver juste après la pause (ordre timeupdate/pause
-      // non garanti) — se fier à l'état réel de l'audio plutôt qu'à l'ordre des événements.
-      setCountIn(undefined);
-      return;
-    }
-
     const output = player.output as unknown as synth.IExternalMediaSynthOutput;
     const audioMs = audio.currentTime * 1000;
     // Lu depuis la ref (toujours à jour), pas depuis la closure du composant : l'interval
     // de ce onTimeUpdate est capturé une fois dans onPlay et ne se recrée pas tout seul si
     // la détection se termine en cours de lecture (track jamais joué avant, cf. bug rapporté).
     const leadInMs = leadInMsRef.current;
+
+    if (audio.paused) {
+      // Un dernier timeupdate peut arriver juste après la pause (ordre timeupdate/pause
+      // non garanti) — se fier à l'état réel de l'audio plutôt qu'à l'ordre des événements.
+      setCountIn(undefined);
+      // Seek pendant la pause (onSeeked) : le curseur suit quand même la nouvelle position,
+      // sans métronome ni overlay.
+      output.updatePosition(pausedCursorMs(audioMs, leadInMs));
+      return;
+    }
 
     if (leadInMs === undefined) {
       // Pas encore détecté/persisté — comportement d'avant : position brute. On affiche
@@ -127,8 +139,7 @@ export default function useBackingTrackPlayback(
     // correspondre au même nombre de temps si on les exprimait au tempo noté — d'où le
     // facteur trackBpm/notatedBpm. Vaut 1 quand le backing track est au tempo noté du .gp.
     setCountIn(undefined);
-    const scale = (backingTrackSpeed?.bpm || notatedBpmRef.current) / notatedBpmRef.current;
-    output.updatePosition((audioMs - leadInMs) * scale);
+    output.updatePosition((audioMs - leadInMs) * tempoScale());
   };
 
   const onPlay = () => {

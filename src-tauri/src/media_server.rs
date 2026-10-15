@@ -28,11 +28,18 @@
 // a rangeless request, 206 with the true Content-Range only for an explicit Range request —
 // gets first bytes to the client immediately (no buffering wait) without ever lying about what
 // was requested.
+//
+// Security: anything on the machine can reach a loopback port — other local processes, and any
+// web page open in the user's browser (`fetch("http://127.0.0.1:47812/...")`). Two guards keep
+// this server from becoming an open proxy to the user's cloud storage:
+//   - every request must carry `?t=<AppState::media_token>`, a random per-session secret that
+//     only the WebView gets (via the `get_media_token` command) — 403 otherwise;
+//   - CORS is only granted to the app's own origin, never `*`.
 #![cfg(target_os = "linux")]
 
 use crate::commands::AppState;
 use crate::stream::{resolve_download_target, StreamKind};
-use chelou_providers::ProviderId;
+use chelou_providers::{redact_urls, ProviderId};
 use futures_util::TryStreamExt;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, StreamBody};
@@ -80,7 +87,10 @@ pub fn spawn(app: AppHandle) {
                 let io = TokioIo::new(stream);
                 let service = service_fn(move |req| handle(app.clone(), req));
                 if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
-                    eprintln!("media_server: connection error: {e} | debug: {e:?}");
+                    eprintln!(
+                        "media_server: connection error: {}",
+                        redact_urls(&format!("{e:?}"))
+                    );
                 }
             });
         }
@@ -94,16 +104,48 @@ async fn handle(
     Ok(match handle_inner(&app, req).await {
         Ok(resp) => resp,
         Err(e) => {
-            eprintln!("media_server: request failed: {e} | debug: {e:?}");
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(
-                    Full::new(Bytes::from(e.to_string()))
-                        .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-                        .boxed(),
-                )
-                .expect("static status/body always builds a valid response")
+            let message = redact_urls(&format!("{e:#}"));
+            eprintln!("media_server: request failed: {message}");
+            text_response(StatusCode::INTERNAL_SERVER_ERROR, message)
         }
+    })
+}
+
+fn text_response(status: StatusCode, message: String) -> Response<ResponseBody> {
+    Response::builder()
+        .status(status)
+        .body(
+            Full::new(Bytes::from(message))
+                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+                .boxed(),
+        )
+        .expect("static status/body always builds a valid response")
+}
+
+/// Origins allowed to read responses cross-origin (silence detection `fetch()`es audio): the
+/// app's own WebView origin on Linux, plus Vite's dev server (tauri.conf.json devUrl).
+fn allowed_origin(origin: Option<&str>) -> Option<&str> {
+    origin.filter(|o| {
+        *o == "tauri://localhost" || (cfg!(debug_assertions) && *o == "http://localhost:1420")
+    })
+}
+
+fn query_value<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        pair.split_once('=')
+            .filter(|(k, _)| *k == name)
+            .map(|(_, v)| v)
+    })
+}
+
+/// Constant-time comparison, so response timing doesn't leak how much of a guess was right.
+fn token_matches(given: Option<&str>, expected: &str) -> bool {
+    given.is_some_and(|g| {
+        g.len() == expected.len()
+            && g.bytes()
+                .zip(expected.bytes())
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                == 0
     })
 }
 
@@ -115,6 +157,16 @@ async fn handle_inner(
     req: Request<Incoming>,
 ) -> anyhow::Result<Response<ResponseBody>> {
     let path = req.uri().path().to_owned();
+    let query = req.uri().query().unwrap_or("");
+
+    let state = app.state::<AppState>();
+    let expected_token = state
+        .media_token
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("media server running without a token"))?;
+    if !token_matches(query_value(query, "t"), expected_token) {
+        return Ok(text_response(StatusCode::FORBIDDEN, "forbidden".into()));
+    }
     let mut parts = path.trim_start_matches('/').splitn(3, '/');
     let kind_str = parts
         .next()
@@ -136,10 +188,13 @@ async fn handle_inner(
         "audio" => StreamKind::Audio,
         _ => anyhow::bail!("unsupported media kind: {kind_str}"),
     };
-    let transcoded = req
-        .uri()
-        .query()
-        .is_some_and(|q| q.contains("transcoded=true"));
+    let transcoded = query_value(query, "transcoded") == Some("true");
+    let cors_origin = allowed_origin(
+        req.headers()
+            .get(hyper::header::ORIGIN)
+            .and_then(|v| v.to_str().ok()),
+    )
+    .map(str::to_owned);
 
     let range_header = req
         .headers()
@@ -148,7 +203,6 @@ async fn handle_inner(
         .map(str::to_owned);
     eprintln!("media_server: request {path} range={range_header:?}");
 
-    let state = app.state::<AppState>();
     let download_target =
         resolve_download_target(state.clone(), provider, kind, file_id, transcoded).await?;
 
@@ -160,7 +214,8 @@ async fn handle_inner(
         upstream = upstream.header("Range", r);
     }
 
-    let upstream_resp = upstream.send().await?;
+    // without_url: the target URL is a pre-signed link — keep it out of errors and logs.
+    let upstream_resp = upstream.send().await.map_err(reqwest::Error::without_url)?;
     let status = upstream_resp.status().as_u16();
     eprintln!(
         "media_server: response {path} status={status} content-length={:?} content-range={:?}",
@@ -183,13 +238,16 @@ async fn handle_inner(
     let body_stream = upstream_resp
         .bytes_stream()
         .map_ok(Frame::data)
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+        .map_err(|e| Box::new(e.without_url()) as Box<dyn std::error::Error + Send + Sync>);
     let body = StreamBody::new(body_stream).boxed();
 
     let mut builder = Response::builder()
         .status(status)
         .header("Accept-Ranges", "bytes")
-        .header("Access-Control-Allow-Origin", "*");
+        .header("Vary", "Origin");
+    if let Some(origin) = cors_origin {
+        builder = builder.header("Access-Control-Allow-Origin", origin);
+    }
     if let Some(v) = content_type {
         builder = builder.header("Content-Type", v);
     }

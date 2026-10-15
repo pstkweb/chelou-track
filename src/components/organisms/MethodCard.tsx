@@ -23,20 +23,14 @@ export default function MethodCard({ method, isAvailable, onDelete, onOpen }: Me
   const handleOpen = () => {
     if (isAvailable) onOpen(method);
   };
-  const handleEnterPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleOpen();
-    }
-  };
-
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: clic sur toute la carte = raccourci souris ; au clavier, le bouton « Ouvrir/Reprendre » de la carte fait la même chose (une carte focusable contenant des boutons serait un contrôle imbriqué)
     <div
       className={cn(
         'card card-lift flex flex-col overflow-hidden p-0',
         isAvailable ? 'cursor-pointer' : 'grayscale',
       )}
       onClick={handleOpen}
-      onKeyDown={handleEnterPress}
     >
       <div className="relative z-10 flex flex-col">
         <div
@@ -64,10 +58,10 @@ export default function MethodCard({ method, isAvailable, onDelete, onOpen }: Me
           </h3>
 
           {isConfirming && (
+            // biome-ignore lint/a11y/useKeyWithClickEvents: bouclier stopPropagation (empêche le clic d'ouvrir la carte), pas une action
             <div
               className="absolute inset-0 z-2 flex flex-col items-center justify-center gap-2.5 bg-[#14100e]/90 p-3.5 text-center"
               onClick={(e) => e.stopPropagation()}
-              onKeyUp={() => {}}
             >
               <div className="font-semibold text-sm">Supprimer « {method.title} » ?</div>
               <div className="flex gap-2">

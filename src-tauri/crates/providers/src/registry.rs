@@ -70,11 +70,17 @@ pub enum ProviderAuthClient {
 }
 
 impl ProviderAuth for ProviderAuthClient {
-    fn authorize_url(&self, client_id: &str, redirect_uri: &str) -> String {
+    fn authorize_url(
+        &self,
+        client_id: &str,
+        redirect_uri: &str,
+        state: &str,
+        code_challenge: &str,
+    ) -> String {
         match self {
-            Self::PCloud(a) => a.authorize_url(client_id, redirect_uri),
-            Self::Dropbox(a) => a.authorize_url(client_id, redirect_uri),
-            Self::GoogleDrive(a) => a.authorize_url(client_id, redirect_uri),
+            Self::PCloud(a) => a.authorize_url(client_id, redirect_uri, state, code_challenge),
+            Self::Dropbox(a) => a.authorize_url(client_id, redirect_uri, state, code_challenge),
+            Self::GoogleDrive(a) => a.authorize_url(client_id, redirect_uri, state, code_challenge),
         }
     }
 
@@ -82,20 +88,21 @@ impl ProviderAuth for ProviderAuthClient {
         &self,
         code: &str,
         redirect_uri: &str,
+        code_verifier: &str,
         client_id: &str,
         client_secret: &str,
     ) -> Result<StoredCredentials> {
         match self {
             Self::PCloud(a) => {
-                a.exchange_code(code, redirect_uri, client_id, client_secret)
+                a.exchange_code(code, redirect_uri, code_verifier, client_id, client_secret)
                     .await
             }
             Self::Dropbox(a) => {
-                a.exchange_code(code, redirect_uri, client_id, client_secret)
+                a.exchange_code(code, redirect_uri, code_verifier, client_id, client_secret)
                     .await
             }
             Self::GoogleDrive(a) => {
-                a.exchange_code(code, redirect_uri, client_id, client_secret)
+                a.exchange_code(code, redirect_uri, code_verifier, client_id, client_secret)
                     .await
             }
         }
@@ -120,5 +127,53 @@ pub fn make_auth(provider: ProviderId) -> ProviderAuthClient {
         ProviderId::PCloud => ProviderAuthClient::PCloud(PCloudAuth),
         ProviderId::Dropbox => ProviderAuthClient::Dropbox(DropboxAuth),
         ProviderId::GoogleDrive => ProviderAuthClient::GoogleDrive(GDriveAuth),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [ProviderId; 3] = [
+        ProviderId::PCloud,
+        ProviderId::Dropbox,
+        ProviderId::GoogleDrive,
+    ];
+
+    fn creds() -> StoredCredentials {
+        StoredCredentials {
+            access_token: "tok".into(),
+            refresh_token: None,
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn make_client_builds_the_requested_provider() {
+        for p in ALL {
+            assert_eq!(make_client(p, &creds()).unwrap().provider_id(), p);
+        }
+    }
+
+    #[test]
+    fn only_gdrive_download_targets_are_uncacheable() {
+        // GDrive bakes the live access token into the target headers (cf. stream::resolve_url).
+        for p in ALL {
+            let cacheable = make_client(p, &creds()).unwrap().is_cacheable();
+            assert_eq!(cacheable, p != ProviderId::GoogleDrive, "{p}");
+        }
+    }
+
+    #[test]
+    fn every_authorize_url_carries_state_and_redirect_uri() {
+        for p in ALL {
+            let url = make_auth(p).authorize_url("cid", "http://localhost:1/cb", "st4te", "ch");
+            assert!(url.contains("state=st4te"), "{p}: {url}");
+            assert!(
+                url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcb"),
+                "{p}: {url}"
+            );
+            assert!(url.contains("client_id=cid"), "{p}: {url}");
+        }
     }
 }

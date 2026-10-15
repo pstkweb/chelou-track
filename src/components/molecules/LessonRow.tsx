@@ -2,6 +2,7 @@ import { ChevronRight, Music, Volume2 } from 'lucide-react';
 import Chip from '@/components/atoms/Chip';
 import StatusDot from '@/components/atoms/StatusDot';
 import { useNavigation } from '@/contexts/NavigationContext';
+import { activateOnKey } from '@/lib/a11y';
 import cn from '@/lib/cn';
 import type { Chapter, LessonStatus } from '@/lib/method-view';
 import type { Lesson } from '@/types/model';
@@ -16,17 +17,16 @@ type LessonRowProps = {
 export default function LessonRow({ lesson, status, chapter, active }: LessonRowProps) {
   const { openLesson } = useNavigation();
 
-  const handleEnterPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      openLesson(lesson, chapter);
-    }
-  };
+  const open = () => openLesson(lesson, chapter);
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: contenu en blocs (div), non autorisé dans un <button>
     <div
+      role="button"
+      tabIndex={0}
       className={cn(`tree-row ${status}`, active && 'active')}
-      onClick={() => openLesson(lesson, chapter)}
-      onKeyDown={handleEnterPress}
+      onClick={open}
+      onKeyDown={activateOnKey(open)}
     >
       <div className="relative z-10 flex flex-1 items-center gap-3">
         <StatusDot status={status} />

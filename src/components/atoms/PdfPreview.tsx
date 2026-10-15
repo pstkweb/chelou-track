@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { loadPdfDocument } from '@/lib/pdf';
 import { getCachedThumbnail, setCachedThumbnail } from '@/lib/thumbnail-cache';
 import type { DocumentRef, Provider } from '@/types/model';
@@ -12,9 +12,11 @@ const THUMBNAIL_WIDTH = 400;
 
 export default function PdfPreview({ document, provider }: PdfPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setFailed(false);
 
     const drawBlob = async (blob: Blob) => {
       const bitmap = await createImageBitmap(blob);
@@ -52,12 +54,19 @@ export default function PdfPreview({ document, provider }: PdfPreviewProps) {
 
     getCachedThumbnail(provider, document.file.fileId)
       .then((cached) => (cached ? drawBlob(cached) : renderAndCache()))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(`PDF preview failed for ${document.file.name}`, err);
+        if (!cancelled) setFailed(true);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [document.file.fileId, provider]);
+  }, [document.file.fileId, document.file.name, provider]);
+
+  if (failed) {
+    return <span className="text-fg3 text-xs">Aperçu indisponible</span>;
+  }
 
   return <canvas ref={canvasRef} className="max-h-full max-w-full" />;
 }

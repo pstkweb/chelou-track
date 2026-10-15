@@ -18,6 +18,11 @@ export async function getAuthStatus(): Promise<Provider | null> {
   return invoke('get_auth_status');
 }
 
+/** Secret for the Linux loopback media server (null on other platforms) — cf. lib/stream.ts. */
+export async function getMediaToken(): Promise<string | null> {
+  return invoke('get_media_token');
+}
+
 // --- folder browsing ---
 
 export interface FolderEntry {

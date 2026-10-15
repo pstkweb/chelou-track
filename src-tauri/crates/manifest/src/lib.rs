@@ -1,13 +1,22 @@
 // Local JSON manifest — one file per Method in Tauri's app-data dir.
 // Mirrors src/types/model.ts (serde renames snake_case → camelCase for the TS boundary).
 // cf. ARCHITECTURE.md §8 + §9.
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+/// Version of the on-disk manifest format, bumped on any breaking change to `Method`'s shape.
+/// Files written before versioning existed have no field and deserialize as 0.
+pub const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Method {
+    /// Always rewritten to [`SCHEMA_VERSION`] by [`ManifestStore::save`].
+    #[serde(rename = "schemaVersion", default)]
+    pub schema_version: u32,
     pub id: String,
     pub title: String,
     pub source: MethodSource,
@@ -154,13 +163,22 @@ pub struct FileRef {
 
 pub struct ManifestStore {
     base_dir: PathBuf,
+    /// Serialises writers: `update_method` is a read-modify-write, and concurrent commands
+    /// (periodic resume updates + lead-in caching) would otherwise lose each other's changes.
+    write_lock: Mutex<()>,
 }
 
 impl ManifestStore {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        Self {
+            base_dir,
+            write_lock: Mutex::new(()),
+        }
     }
 
+    /// Load every readable manifest. A file that can't be read or parsed (corrupted, or written
+    /// by a newer app version) is skipped and reported on stderr rather than failing the whole
+    /// library — and left untouched on disk, so a newer version can still read it.
     pub fn load_all(&self) -> Result<Vec<Method>> {
         let mut methods = Vec::new();
         let Ok(entries) = std::fs::read_dir(&self.base_dir) else {
@@ -168,11 +186,12 @@ impl ManifestStore {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                let json = std::fs::read_to_string(&path)?;
-                if let Ok(m) = serde_json::from_str::<Method>(&json) {
-                    methods.push(m);
-                }
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            match read_method(&path) {
+                Ok(m) => methods.push(m),
+                Err(e) => eprintln!("manifest: skipping {}: {e:#}", path.display()),
             }
         }
         methods.sort_by(|a, b| a.title.cmp(&b.title));
@@ -180,18 +199,28 @@ impl ManifestStore {
     }
 
     pub fn save(&self, method: &Method) -> Result<()> {
-        let path = self.base_dir.join(format!("{}.json", method.id));
-        let json = serde_json::to_string_pretty(method)?;
-        std::fs::write(path, json)?;
-        Ok(())
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut method = method.clone();
+        method.schema_version = SCHEMA_VERSION;
+        write_atomic(&self.path_for(&method.id)?, &method)
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let path = self.base_dir.join(format!("{id}.json"));
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let path = self.path_for(id)?;
         if path.exists() {
             std::fs::remove_file(path)?;
         }
         Ok(())
+    }
+
+    /// `{base_dir}/{id}.json`, refusing any id that could escape `base_dir` — ids come from
+    /// the WebView (uuid v4 in practice, cf. scanner).
+    fn path_for(&self, id: &str) -> Result<PathBuf> {
+        if !is_valid_id(id) {
+            bail!("invalid method id: {id:?}");
+        }
+        Ok(self.base_dir.join(format!("{id}.json")))
     }
 
     /// Mark a lesson as seen and clear any resume position (lesson watched to completion).
@@ -251,13 +280,45 @@ impl ManifestStore {
     }
 
     fn update_method(&self, id: &str, f: impl FnOnce(&mut Method)) -> Result<()> {
-        let path = self.base_dir.join(format!("{id}.json"));
-        let json = std::fs::read_to_string(&path)?;
-        let mut method: Method = serde_json::from_str(&json)?;
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let path = self.path_for(id)?;
+        let mut method = read_method(&path)?;
         f(&mut method);
-        std::fs::write(path, serde_json::to_string_pretty(&method)?)?;
-        Ok(())
+        method.schema_version = SCHEMA_VERSION;
+        write_atomic(&path, &method)
     }
+}
+
+fn is_valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+fn read_method(path: &std::path::Path) -> Result<Method> {
+    let json = std::fs::read_to_string(path)?;
+    let method: Method = serde_json::from_str(&json).context("invalid manifest JSON")?;
+    if method.schema_version > SCHEMA_VERSION {
+        bail!(
+            "manifest schema v{} is newer than supported v{SCHEMA_VERSION} (app downgraded?)",
+            method.schema_version
+        );
+    }
+    Ok(method)
+}
+
+/// Write to a sibling temp file, fsync, then rename over the target: a crash or full disk
+/// mid-write leaves the previous manifest intact instead of a truncated one. `rename` replaces
+/// an existing file atomically on every target OS (MoveFileEx REPLACE_EXISTING on Windows).
+fn write_atomic(path: &std::path::Path, method: &Method) -> Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(serde_json::to_string_pretty(method)?.as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 // --- Tests ---
@@ -302,6 +363,7 @@ mod tests {
 
     fn sample_method() -> Method {
         Method {
+            schema_version: SCHEMA_VERSION,
             id: "test-method".into(),
             title: "Test Method".into(),
             source: MethodSource {
@@ -342,6 +404,7 @@ mod tests {
             v.get("defaultCountInBars").is_some(),
             "expected defaultCountInBars"
         );
+        assert_eq!(v["schemaVersion"], SCHEMA_VERSION, "expected schemaVersion");
         assert!(
             v.get("default_count_in_bars").is_none(),
             "snake_case must not leak"
@@ -521,6 +584,74 @@ mod tests {
         };
         assert_eq!(lesson.backing_groups[0].tracks[0].lead_in_ms_override, None);
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn temp_store(name: &str) -> (PathBuf, ManifestStore) {
+        let dir = std::env::temp_dir().join(format!(
+            "chelou-manifest-test-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        (dir.clone(), ManifestStore::new(dir))
+    }
+
+    #[test]
+    fn rejects_ids_that_could_escape_the_manifest_dir() {
+        let (dir, store) = temp_store("ids");
+        for id in ["../evil", "a/b", "a\\b", "", ".."] {
+            assert!(store.delete(id).is_err(), "{id:?}");
+            let mut m = sample_method();
+            m.id = id.to_owned();
+            assert!(store.save(&m).is_err(), "{id:?}");
+        }
+        assert!(store.delete("3f2b1c4e-0000-4000-8000-000000000000").is_ok());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_all_skips_corrupt_and_newer_files_but_keeps_the_rest() {
+        let (dir, store) = temp_store("corrupt");
+        store.save(&sample_method()).unwrap();
+        std::fs::write(dir.join("broken.json"), "{ not json").unwrap();
+        let mut future = serde_json::to_value(sample_method()).unwrap();
+        future["id"] = "future".into();
+        future["schemaVersion"] = (SCHEMA_VERSION + 1).into();
+        std::fs::write(dir.join("future.json"), future.to_string()).unwrap();
+
+        let loaded = store.load_all().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "test-method");
+        // Unreadable files are left on disk untouched.
+        assert!(dir.join("broken.json").exists());
+        assert!(dir.join("future.json").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn legacy_file_without_schema_version_loads_and_is_upgraded_on_write() {
+        let (dir, store) = temp_store("legacy");
+        let mut legacy = serde_json::to_value(sample_method()).unwrap();
+        legacy.as_object_mut().unwrap().remove("schemaVersion");
+        std::fs::write(dir.join("test-method.json"), legacy.to_string()).unwrap();
+
+        assert_eq!(store.load_all().unwrap()[0].schema_version, 0);
+        store.mark_lesson_seen("test-method", "lesson-1").unwrap();
+        assert_eq!(store.load_all().unwrap()[0].schema_version, SCHEMA_VERSION);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn save_leaves_no_temp_file_behind() {
+        let (dir, store) = temp_store("atomic");
+        store.save(&sample_method()).unwrap();
+        store.save(&sample_method()).unwrap();
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec!["test-method.json".to_owned()]);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

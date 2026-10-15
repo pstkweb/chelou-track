@@ -1,6 +1,6 @@
 import { Download } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
-import { docUrl } from '@/lib/stream';
+import { docUrl, fetchStream } from '@/lib/stream';
 import type { DocumentRef, Provider } from '@/types/model';
 import Badge from '../atoms/Badge';
 import Button from '../atoms/Button';
@@ -19,7 +19,7 @@ async function handleDownload(
   showToast: (message: string, variant?: 'success' | 'error') => void,
 ) {
   try {
-    const res = await fetch(docUrl(provider, document.file.fileId));
+    const res = await fetchStream(docUrl(provider, document.file.fileId));
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const link = window.document.createElement('a');
@@ -37,15 +37,15 @@ export default function DocumentModal({ document, label, provider, onClose }: Do
   const { showToast } = useToast();
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: clic sur le fond = fermeture souris ; au clavier, Échap (géré par DocumentsScreen) ou le bouton ✕
     <div
       onClick={onClose}
       className="animation-[fadeUp_.2s_var(--ease)] fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,.6)] p-8 backdrop-blur-xs"
-      onKeyUp={() => {}}
     >
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: bouclier stopPropagation (un clic dans la modale ne la ferme pas), pas une action */}
       <div
         className="card flex max-h-[92vh] max-w-[96vw] flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
-        onKeyUp={() => {}}
       >
         <div className="flex items-center gap-3 border-border border-b px-4 py-3.5">
           <Badge className="text-accent">{label}</Badge>

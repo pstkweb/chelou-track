@@ -51,6 +51,7 @@ const SAMPLE_SECTION: Section = {
 const SAMPLE_SECTION_ITEM: SectionFolder = { type: 'section', ...SAMPLE_SECTION };
 
 export const SAMPLE_METHOD = {
+  schemaVersion: 1,
   id: 'test-method',
   title: 'Test Method',
   source: { provider: 'pcloud' as const, rootFolderId: '123456789' },
