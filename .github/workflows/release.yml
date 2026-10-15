@@ -1,0 +1,143 @@
+name: Release
+
+# Workflow manuel : calcule la version suivante depuis le dernier tag vX.Y.Z, l'écrit dans tous
+# les fichiers via scripts/bump-version.mjs, commit + tag, crée la release en brouillon, lance
+# build.yml dessus puis la publie une fois les artefacts attachés (l'updater suit
+# releases/latest : il ne voit jamais une release sans latest.json).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Type de release semver (patch = bugfix)"
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      commit:
+        description: "Commit à releaser (SHA, branche ou tag) — vide = dernier commit de main"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Bump + tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      release-id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve target commit
+        id: target
+        env:
+          INPUT_COMMIT: ${{ inputs.commit }}
+        run: |
+          ref="${INPUT_COMMIT:-origin/main}"
+          sha=$(git rev-parse --verify --quiet "${ref}^{commit}" \
+            || git rev-parse --verify --quiet "origin/${ref}^{commit}") \
+            || { echo "::error::Commit introuvable : $ref"; exit 1; }
+          main=$(git rev-parse origin/main)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # Le commit de bump n'est poussé sur main que s'il s'y ajoute en fast-forward.
+          if [ "$sha" = "$main" ]; then
+            echo "on-main-head=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$sha n'est pas la tête de main : le bump n'existera que sous le tag."
+            echo "on-main-head=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          # Source de vérité : le plus grand tag vX.Y.Z (les fichiers de main peuvent être en
+          # retard si une release a été faite depuis un autre commit).
+          last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          IFS=. read -r major minor patch <<< "${last#v}"
+          major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
+          case "$BUMP" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          version="$major.$minor.$patch"
+          if git rev-parse --verify --quiet "refs/tags/v$version" >/dev/null; then
+            echo "::error::Le tag v$version existe déjà"; exit 1
+          fi
+          echo "${last:-aucun tag} -> v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Bump, commit and tag
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ON_MAIN_HEAD: ${{ steps.target.outputs.on-main-head }}
+        run: |
+          # Le script vient de main : un commit visé plus ancien peut ne pas l'avoir (ou une
+          # version qui oublie un fichier).
+          cp scripts/bump-version.mjs "$RUNNER_TEMP/bump-version.mjs"
+          git checkout --detach "$SHA"
+          node "$RUNNER_TEMP/bump-version.mjs" "$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          # --atomic : si main a bougé entre-temps, rien n'est poussé (ni main ni le tag).
+          if [ "$ON_MAIN_HEAD" = "true" ]; then
+            git push --atomic origin HEAD:refs/heads/main "refs/tags/$TAG"
+          else
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Create draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "$TAG" --generate-notes
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id")
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+    with:
+      release-id: ${{ needs.prepare.outputs.release-id }}
+      tag: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

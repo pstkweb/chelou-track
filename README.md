@@ -169,10 +169,20 @@ testable doit y vivre (cf. §15 de [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md))
 
 ### Publier une release
 
-1. Monter la version dans `package.json`, `src-tauri/tauri.conf.json` et
-   `src-tauri/Cargo.toml` (puis `cargo check` pour mettre à jour `Cargo.lock`), committer et
-   pousser.
-2. Créer et **publier** une release GitHub avec un tag `vX.Y.Z`.
-3. Le workflow [build.yml](.github/workflows/build.yml) compile Windows, macOS et Linux,
-   signe les artefacts de mise à jour et les attache à la release, avec le `latest.json` lu par
-   l'updater intégré.
+Lancer à la main le workflow [release.yml](.github/workflows/release.yml) (onglet *Actions* →
+*Release* → *Run workflow*) en choisissant le type de bump (`patch`, `minor`, `major`) et,
+optionnellement, le commit à releaser (par défaut la tête de `main`). Il :
+
+1. calcule la version suivante depuis le plus grand tag `vX.Y.Z` ;
+2. l'écrit partout via [scripts/bump-version.mjs](scripts/bump-version.mjs) (`package.json`,
+   `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
+   `src-tauri/Cargo.lock`), committe, tague et pousse (le commit n'est poussé sur `main` que si
+   le commit visé en est la tête) ;
+3. crée la release en brouillon, lance [build.yml](.github/workflows/build.yml) qui compile
+   Windows, macOS et Linux, signe les artefacts de mise à jour et les attache avec le
+   `latest.json` lu par l'updater intégré ;
+4. publie la release une fois tous les builds réussis.
+
+Si un build échoue, la release reste en brouillon : relancer les jobs échoués du run. Un fichier
+qui porte la version s'ajoute dans `scripts/bump-version.mjs`, nulle part ailleurs. Publier une
+release à la main depuis l'UI GitHub déclenche toujours `build.yml` directement.

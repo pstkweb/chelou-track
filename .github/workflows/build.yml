@@ -1,9 +1,19 @@
 name: Build release
 
 on:
+  # Release publiée à la main depuis l'UI GitHub.
   release:
     types:
       - published
+  # Appelé par release.yml (une release créée avec GITHUB_TOKEN ne déclenche pas `release`).
+  workflow_call:
+    inputs:
+      release-id:
+        type: string
+        required: true
+      tag:
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -22,6 +32,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -67,6 +79,6 @@ jobs:
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
         with:
-          releaseId: ${{ github.event.release.id }}
-          tagName: ${{ github.event.release.tag_name }}
+          releaseId: ${{ inputs.release-id || github.event.release.id }}
+          tagName: ${{ inputs.tag || github.event.release.tag_name }}
           releaseAssetNamePattern: "[name]_[version]_[platform]_[arch]_[mode][setup][ext]"
