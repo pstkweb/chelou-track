@@ -11,6 +11,18 @@ télécharger, et affiche la tablature synchronisée avec le backing track penda
 - **Documents** : PDF et images de la méthode consultables dans l'app.
 - **Mises à jour automatiques** une fois l'app installée.
 
+## Aperçu
+
+<p align="center">
+  <a href="docs/screenshots/method-screen.jpg"><img src="docs/screenshots/method-screen.jpg" width="400" alt="Vue d'une méthode : chapitres, leçons et progression" title="Vue d'une méthode : chapitres, leçons et progression"></a>
+  <a href="docs/screenshots/tab-screen.jpg"><img src="docs/screenshots/tab-screen.jpg" width="400" alt="Tablature synchronisée avec le backing track" title="Tablature synchronisée avec le backing track"></a>
+  <br>
+  <a href="docs/screenshots/video-screen.jpg"><img src="docs/screenshots/video-screen.jpg" width="400" alt="Lecture d'une leçon vidéo" title="Lecture d'une leçon vidéo"></a>
+  <a href="docs/screenshots/files-screen.jpg"><img src="docs/screenshots/files-screen.jpg" width="400" alt="Documents de la méthode : PDF et images" title="Documents de la méthode : PDF et images"></a>
+  <br>
+  <sub>Méthode · Tablature synchronisée · Vidéo · Documents — clique sur une image pour l'agrandir</sub>
+</p>
+
 ---
 
 ## Utilisateurs — installer Chelou Track
