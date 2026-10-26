@@ -1,11 +1,12 @@
 # Chelou Track
 
 Lecteur desktop de méthodes de guitare. Les vidéos, backing tracks et tablatures GuitarPro
-restent sur ton cloud (pCloud, Dropbox) : Chelou Track les lit en streaming, sans rien
+restent là où elles sont, sur ton cloud (pCloud, Dropbox) ou dans un dossier de ta machine
+(disque local, lecteur réseau, NAS) : Chelou Track les lit en streaming, sans rien
 télécharger, et affiche la tablature synchronisée avec le backing track pendant que tu joues.
 
-- **Import automatique** : pointe un dossier de ton cloud, l'app détecte les méthodes, leçons,
-  vidéos, backing tracks et tablatures.
+- **Import automatique** : pointe un dossier de ton cloud ou de ton disque, l'app détecte les
+  méthodes, leçons, vidéos, backing tracks et tablatures.
 - **Vue synchro** : backing track audio + tablature GuitarPro qui défile en rythme, vitesse de
   lecture réglable.
 - **Documents** : PDF et images de la méthode consultables dans l'app.
@@ -79,8 +80,13 @@ et `gstreamer1.0-plugins-good` sur Debian/Ubuntu).
 
 ### 3. Premier lancement
 
-1. Choisis ton service cloud (pCloud ou Dropbox) : le navigateur s'ouvre pour autoriser
-   l'accès, puis tu reviens dans l'app.
+1. Choisis où sont tes méthodes :
+   - **pCloud ou Dropbox** : le navigateur s'ouvre pour autoriser l'accès, puis tu reviens
+     dans l'app ;
+   - **Dossier local** : choisis un dossier sur ton ordinateur ou sur un partage réseau déjà
+     monté (lecteur réseau Windows, chemin `\\serveur\partage`, `/mnt/nas`…). Aucun compte
+     nécessaire. Les méthodes importées restent liées à ce dossier : si tu en choisis un autre
+     plus tard, il faudra les réimporter.
 2. Sélectionne le dossier qui contient tes méthodes ; l'app les scanne et les ajoute à ta
    bibliothèque.
 
@@ -93,7 +99,7 @@ cette page.
 
 La source de vérité de l'architecture est [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), à lire
 avant tout changement structurel. [CLAUDE.md](CLAUDE.md) en donne un résumé condensé, et
-[docs/PROVIDERS.md](docs/PROVIDERS.md) l'état des providers cloud.
+[docs/PROVIDERS.md](docs/PROVIDERS.md) l'état des providers (cloud et dossier local).
 
 ### Stack
 
@@ -146,8 +152,9 @@ http://localhost:53683/callback
 http://localhost:53684/callback
 ```
 
-Sans ce fichier, le projet compile quand même ; seule la connexion au provider échoue au
-runtime. En CI de release, les valeurs viennent des secrets GitHub Actions.
+Sans ce fichier, le projet compile quand même ; seule la connexion aux providers cloud échoue
+au runtime. Le provider « Dossier local » n'a besoin d'aucun identifiant : pratique pour
+développer sans compte cloud. En CI de release, les valeurs viennent des secrets GitHub Actions.
 
 ### Lancer en dev (hot reload)
 

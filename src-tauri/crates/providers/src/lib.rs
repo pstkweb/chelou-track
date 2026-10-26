@@ -4,6 +4,7 @@ use std::{fmt::Display, str::FromStr};
 pub use scanner::{scan_methods_in_folder, ScanEvent};
 pub mod dropbox;
 pub mod gdrive;
+pub mod local;
 pub mod oauth;
 pub mod pcloud;
 pub mod registry;
@@ -84,6 +85,10 @@ pub enum ProviderId {
     // wired up in case that calculus changes; re-enabling is just restoring the UI entry.
     #[serde(rename = "gdrive")]
     GoogleDrive,
+    /// A folder on this machine — local disk or a network mount (mapped drive, UNC path,
+    /// /mnt/…). No OAuth: "connecting" just picks the root folder, cf. local.rs.
+    #[serde(rename = "local")]
+    Local,
 }
 
 impl Display for ProviderId {
@@ -92,6 +97,7 @@ impl Display for ProviderId {
             ProviderId::PCloud => "pcloud",
             ProviderId::Dropbox => "dropbox",
             ProviderId::GoogleDrive => "gdrive",
+            ProviderId::Local => "local",
         })
     }
 }
@@ -104,20 +110,26 @@ impl FromStr for ProviderId {
             "pcloud" => Ok(ProviderId::PCloud),
             "dropbox" => Ok(ProviderId::Dropbox),
             "gdrive" => Ok(ProviderId::GoogleDrive),
+            "local" => Ok(ProviderId::Local),
             _ => anyhow::bail!("unknown provider id: {s}"),
         }
     }
 }
 
-#[derive(Clone)]
-pub struct DownloadTarget {
-    pub url: String,
-    pub headers: Vec<(String, String)>,
+#[derive(Clone, Debug, PartialEq)]
+pub enum DownloadTarget {
+    /// Remote file, fetched with reqwest (`headers` sent on every Range request).
+    Http {
+        url: String,
+        headers: Vec<(String, String)>,
+    },
+    /// File readable straight from this machine's filesystem (local provider).
+    File(std::path::PathBuf),
 }
 
 impl DownloadTarget {
     pub fn url_only(url: String) -> Self {
-        Self {
+        Self::Http {
             url,
             headers: Vec::new(),
         }
@@ -222,9 +234,13 @@ pub async fn fetch_range(
     target: &DownloadTarget,
     range_header: Option<&str>,
 ) -> Result<RangeResponse> {
-    let mut req = http.get(&target.url);
+    let (url, headers) = match target {
+        DownloadTarget::Http { url, headers } => (url, headers),
+        DownloadTarget::File(path) => return local::read_range(path, range_header).await,
+    };
+    let mut req = http.get(url);
 
-    for (key, value) in &target.headers {
+    for (key, value) in headers {
         req = req.header(key, value);
     }
 
@@ -293,6 +309,7 @@ mod tests {
             ProviderId::PCloud,
             ProviderId::Dropbox,
             ProviderId::GoogleDrive,
+            ProviderId::Local,
         ] {
             assert_eq!(p.to_string().parse::<ProviderId>().unwrap(), p);
         }

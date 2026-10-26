@@ -70,7 +70,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | Module | Rôle |
 |---|---|
 | `src/lib.rs` | Point d'entrée ; wire le handler `stream://`, l'`AppState` et l'`invoke_handler` |
-| `src/commands/` | Tous les `#[tauri::command]` : auth + liste/scan/save/delete méthodes, paramétrées par `ProviderId` |
+| `src/commands/` | Tous les `#[tauri::command]` : auth (`oauth_start`, `connect_local`) + liste/scan/save/delete méthodes, paramétrées par `ProviderId` |
 | `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance via keyring-core (store par OS) |
 | `src/providers/mod.rs` | Registre : enum `ProviderClient`/`ProviderAuthClient` (dispatch par `match`, un bras par provider) + `make_client`/`make_auth` |
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
@@ -87,12 +87,13 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib.rs` | Types neutres (`Entry`, `RangeResponse`, `DownloadTarget`), `ProviderId` (Display/FromStr), traits `StorageProvider`/`ProviderAuth`, `StoredCredentials`, `fetch_range` (fonction libre), `random_token`, `redact_urls` (toute erreur renvoyée au WebView passe par là) |
+| `src/lib.rs` | Types neutres (`Entry`, `RangeResponse`, `DownloadTarget` = `Http` \| `File`), `ProviderId` (Display/FromStr), traits `StorageProvider`/`ProviderAuth`, `StoredCredentials`, `fetch_range` (fonction libre), `random_token`, `redact_urls` (toute erreur renvoyée au WebView passe par là) |
 | `src/scanner.rs` | Scan DFS générique (`scan_tree`/`scan_methods_in_folder<P: StorageProvider>`) : buckets par mot-clé, tri naturel, parser BPM, `group_by_radical` — indépendant du provider |
 | `src/oauth.rs` | Boucle loopback OAuth partagée (`bind_loopback`, `wait_for_code`) avec `state` anti-CSRF + PKCE S256, et `request_token` (échange/refresh sur un token endpoint RFC 6749 standard) — aucune connaissance d'un provider particulier |
 | `src/registry.rs` | Enums `ProviderClient`/`ProviderAuthClient` (dispatch par `match`) + `make_client`/`make_auth` |
 | `src/pcloud.rs` | Adapter pCloud : `PCloudClient`/`PCloudAuth`, `map_entry`, impls `StorageProvider` + `ProviderAuth` (pas de PKCE côté pCloud) |
 | `src/dropbox.rs`, `src/gdrive.rs` | Adapters Dropbox / Google Drive (Drive masqué dans l'UI, cf. `ProviderId::GoogleDrive`) |
+| `src/local.rs` | Provider local (disque ou montage réseau) : `LocalClient` enraciné sur le dossier choisi par `connect_local` (chemin stocké dans `access_token`), ids = base64url du chemin relatif, `open_range`/`read_range` pour `DownloadTarget::File` — cf. ARCHITECTURE.md §14 |
 
 Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à trois sous-crates permet de tester le modèle, la persistance et la logique provider — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit).
 

@@ -39,17 +39,19 @@
 
 use crate::commands::AppState;
 use crate::stream::{resolve_download_target, StreamKind};
-use chelou_providers::{redact_urls, ProviderId};
+use chelou_providers::{redact_urls, DownloadTarget, ProviderId};
 use futures_util::TryStreamExt;
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::{Bytes, Frame, Incoming};
+use hyper::header::HeaderValue;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use std::net::SocketAddr;
 use tauri::{AppHandle, Manager};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 /// Fixed loopback port. Keep in sync with MEDIA_PORT in src/lib/stream.ts.
@@ -206,40 +208,16 @@ async fn handle_inner(
     let download_target =
         resolve_download_target(state.clone(), provider, kind, file_id, transcoded).await?;
 
-    let mut upstream = state.http.get(&download_target.url);
-    for (key, value) in &download_target.headers {
-        upstream = upstream.header(key, value);
-    }
-    if let Some(r) = &range_header {
-        upstream = upstream.header("Range", r);
-    }
-
-    // without_url: the target URL is a pre-signed link — keep it out of errors and logs.
-    let upstream_resp = upstream.send().await.map_err(reqwest::Error::without_url)?;
-    let status = upstream_resp.status().as_u16();
+    let (status, content_type, content_range, content_length, body) = match download_target {
+        DownloadTarget::Http { url, headers } => {
+            proxy_http(&state.http, &url, &headers, range_header.as_deref()).await?
+        }
+        DownloadTarget::File(file_path) => serve_file(&file_path, range_header.as_deref()).await?,
+    };
     eprintln!(
-        "media_server: response {path} status={status} content-length={:?} content-range={:?}",
-        upstream_resp.headers().get(reqwest::header::CONTENT_LENGTH),
-        upstream_resp.headers().get(reqwest::header::CONTENT_RANGE),
+        "media_server: response {path} status={status} content-length={content_length:?} \
+        content-range={content_range:?}"
     );
-    let content_type = upstream_resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .cloned();
-    let content_range = upstream_resp
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .cloned();
-    let content_length = upstream_resp
-        .headers()
-        .get(reqwest::header::CONTENT_LENGTH)
-        .cloned();
-
-    let body_stream = upstream_resp
-        .bytes_stream()
-        .map_ok(Frame::data)
-        .map_err(|e| Box::new(e.without_url()) as Box<dyn std::error::Error + Send + Sync>);
-    let body = StreamBody::new(body_stream).boxed();
 
     let mut builder = Response::builder()
         .status(status)
@@ -259,4 +237,90 @@ async fn handle_inner(
     }
 
     Ok(builder.body(body)?)
+}
+
+/// Status, Content-Type, Content-Range, Content-Length and body of a media response.
+type MediaParts = (
+    u16,
+    Option<HeaderValue>,
+    Option<HeaderValue>,
+    Option<HeaderValue>,
+    ResponseBody,
+);
+
+/// Forward the request to the provider and stream its response straight through.
+async fn proxy_http(
+    http: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+    range_header: Option<&str>,
+) -> anyhow::Result<MediaParts> {
+    let mut upstream = http.get(url);
+    for (key, value) in headers {
+        upstream = upstream.header(key, value);
+    }
+    if let Some(r) = range_header {
+        upstream = upstream.header("Range", r);
+    }
+
+    // without_url: the target URL is a pre-signed link — keep it out of errors and logs.
+    let upstream_resp = upstream.send().await.map_err(reqwest::Error::without_url)?;
+    let status = upstream_resp.status().as_u16();
+    let content_type = upstream_resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .cloned();
+    let content_range = upstream_resp
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .cloned();
+    let content_length = upstream_resp
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .cloned();
+
+    let body_stream = upstream_resp
+        .bytes_stream()
+        .map_ok(Frame::data)
+        .map_err(|e| Box::new(e.without_url()) as Box<dyn std::error::Error + Send + Sync>);
+
+    Ok((
+        status,
+        content_type,
+        content_range,
+        content_length,
+        StreamBody::new(body_stream).boxed(),
+    ))
+}
+
+/// Stream the requested span of a local file (local provider), 64 KB at a time — same
+/// "never buffer the whole file" contract as `proxy_http`.
+async fn serve_file(
+    file_path: &std::path::Path,
+    range_header: Option<&str>,
+) -> anyhow::Result<MediaParts> {
+    let opened = chelou_providers::local::open_range(file_path, range_header).await?;
+
+    let reader = opened.file.take(opened.len);
+    let body_stream = futures_util::stream::try_unfold(reader, |mut reader| async move {
+        let mut buf = vec![0u8; 64 * 1024];
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        buf.truncate(n);
+        Ok::<_, std::io::Error>(Some((Frame::data(Bytes::from(buf)), reader)))
+    })
+    .map_err(|e: std::io::Error| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
+
+    Ok((
+        opened.status,
+        Some(HeaderValue::from_static(opened.content_type)),
+        opened
+            .content_range
+            .map(HeaderValue::try_from)
+            .transpose()?,
+        Some(HeaderValue::from(opened.len)),
+        StreamBody::new(body_stream).boxed(),
+    ))
 }

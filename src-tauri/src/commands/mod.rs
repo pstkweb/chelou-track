@@ -141,8 +141,9 @@ fn open_browser(url: &str) -> std::io::Result<()> {
 #[tauri::command]
 pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<(), String> {
     let (client_id, client_secret) = client_credentials(provider);
+    let auth = make_auth(provider).map_err(public_err)?;
     let session = bind_loopback().await.map_err(public_err)?;
-    let auth_url = make_auth(provider).authorize_url(
+    let auth_url = auth.authorize_url(
         client_id,
         &session.redirect_uri,
         &session.state,
@@ -154,7 +155,7 @@ pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<
     // Block until the user completes auth in the browser or the 5-minute timeout elapses.
     let code = wait_for_code(&session).await.map_err(public_err)?;
 
-    let credentials = make_auth(provider)
+    let credentials = auth
         .exchange_code(
             &code,
             &session.redirect_uri,
@@ -175,6 +176,47 @@ pub async fn oauth_start(app: tauri::AppHandle, provider: ProviderId) -> Result<
     let _ = app.emit("oauth:complete", ());
 
     Ok(())
+}
+
+/// "Connect" the local provider: let the user pick the root folder (local disk or network
+/// mount) in the native dialog and make it the active source. `false` if the dialog was
+/// cancelled. The root path takes the access token's slot — cf. chelou_providers::local.
+#[tauri::command]
+pub async fn connect_local(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Dossier de tes méthodes")
+        .pick_folder(move |folder| {
+            let _ = tx.send(folder);
+        });
+
+    let Some(folder) = rx.await.map_err(public_err)? else {
+        return Ok(false);
+    };
+    let root = folder.into_path().map_err(public_err)?;
+    let root = root
+        .to_str()
+        .ok_or_else(|| format!("chemin non UTF-8 : {}", root.display()))?
+        .to_owned();
+
+    app.state::<AppState>()
+        .auth
+        .lock()
+        .unwrap()
+        .save(
+            ProviderId::Local,
+            StoredCredentials {
+                access_token: root,
+                refresh_token: None,
+                expires_at: None,
+            },
+        )
+        .map_err(public_err)?;
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -326,7 +368,7 @@ pub async fn get_or_refresh_credentials(state: State<'_, AppState>) -> Result<St
         .unwrap()
     }) {
         let (client_id, client_secret) = client_credentials(provider);
-        let refreshed = make_auth(provider)
+        let refreshed = make_auth(provider)?
             .refresh(&credentials, client_id, client_secret)
             .await?;
 
@@ -347,5 +389,6 @@ fn client_credentials(provider: ProviderId) -> (&'static str, &'static str) {
         ProviderId::PCloud => (PCLOUD_CLIENT_ID, PCLOUD_CLIENT_SECRET),
         ProviderId::Dropbox => (DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET),
         ProviderId::GoogleDrive => (GDRIVE_CLIENT_ID, GDRIVE_CLIENT_SECRET),
+        ProviderId::Local => ("", ""),
     }
 }

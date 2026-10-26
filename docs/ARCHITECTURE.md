@@ -360,6 +360,28 @@ force une abstraction plus large que ce que pCloud/Dropbox seuls auraient suggé
   `get_or_refresh_credentials` (appelé, lui, à chaque requête) : un token tourné mais pas encore
   expiré resterait invisible pour le provider tant que l'entrée de cache n'a pas expiré.
 
+**Provider local (`local.rs`) — dossier sur la machine (disque, lecteur réseau, UNC, montage
+`/mnt/…`).** Pas d'OAuth ni de token : « se connecter » = choisir un dossier racine via la boîte
+de dialogue native (commande `connect_local`, `tauri-plugin-dialog` appelé côté Rust — aucune
+permission dialog exposée au WebView). Le chemin racine occupe le slot `access_token` de
+`StoredCredentials`, ce qui garde uniformes `AuthStore`, `get_or_create_client` (cache indexé par
+token → changer de racine invalide le client) et `make_client` ; `make_auth(Local)` renvoie une
+erreur. Trois choix structurants :
+
+- **`DownloadTarget` est un enum `Http { url, headers } | File(PathBuf)`.** Un fichier local n'a
+  pas d'URL ; `fetch_range` (et `serve_file` dans `media_server.rs`) lisent la plage demandée
+  directement sur disque (`local::open_range` : 200/206/416 + `Content-Range`, `Content-Type`
+  déduit de l'extension). Le serveur média Linux streame le fichier par blocs de 64 Ko — même
+  contrat « jamais tout bufferiser » que le proxy HTTP.
+- **Ids opaques relatifs à la racine** : base64url (sans padding) du chemin relatif séparé par
+  `/`, racine = `''`. URL-safe dans `stream://…/{fileId}` (espaces, accents, `#`, `?` dans les
+  noms), et chaque id est décodé segment par segment : tout ce qui n'est pas un simple nom (`..`,
+  chemin absolu, préfixe de lecteur, `:`) est rejeté → aucune requête ne sort de la racine.
+  Conséquence assumée : les méthodes importées dépendent de la racine choisie — se reconnecter
+  sur une autre racine casse leurs ids (comme changer de compte cloud).
+- **Pas de cache d'URL** (`is_cacheable() == false`, résoudre = joindre un chemin) **ni de
+  version transcodée** (`transcoded` → erreur explicite).
+
 Autres divergences, mineures, par provider :
 
 - **Racine du scan (`rootId`, `src/lib/providers.ts`)** : pCloud `'0'` (id numérique racine de
@@ -375,6 +397,7 @@ Autres divergences, mineures, par provider :
   étant un scope restreint, Google exige un audit de sécurité payant annuel pour le valider en
   production — jugé disproportionné pour ce projet ; le provider est donc implémenté mais masqué
   du sélecteur (détails et alternatives : `docs/PROVIDERS.md`).
+- **Racine locale** : `rootId` `''` = le dossier choisi dans `connect_local` (cf. ci-dessus).
 
 ## 15. Stratégie de tests
 

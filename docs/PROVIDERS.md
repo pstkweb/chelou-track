@@ -11,6 +11,7 @@ pas « comment c'est fait ».
 |---|---|
 | **pCloud** | Provider historique. Endpoint EU (`eapi.pcloud.com`) — ne jamais basculer sur l'endpoint US. |
 | **Dropbox** | Actif, aucune contrainte particulière. |
+| **Dossier local** | Dossier de la machine — disque local ou partage réseau monté (lecteur réseau, chemin UNC, `/mnt/…`). Aucun compte, aucune review d'app : la racine est choisie via la boîte de dialogue native. Détails : `ARCHITECTURE.md` §14. |
 
 ## Implémenté, masqué du sélecteur
 
@@ -35,4 +36,4 @@ pas « comment c'est fait ».
 
 ---
 
-*Dernière mise à jour : 2026-09-06.*
+*Dernière mise à jour : 2026-10-26.*

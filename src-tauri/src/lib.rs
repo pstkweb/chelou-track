@@ -36,6 +36,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("stream", |app, request, responder| {
             stream::handle(app, request, responder);
         })
@@ -82,6 +83,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::oauth_start,
+            commands::connect_local,
             commands::logout,
             commands::get_auth_status,
             commands::get_media_token,

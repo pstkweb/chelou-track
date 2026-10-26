@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::dropbox::{DropboxAuth, DropboxClient};
 use crate::gdrive::{GDriveAuth, GDriveClient};
+use crate::local::LocalClient;
 use crate::pcloud::{PCloudAuth, PCloudClient};
 use crate::{DownloadTarget, Entry, ProviderAuth, ProviderId, StorageProvider, StoredCredentials};
 
@@ -9,6 +10,7 @@ pub enum ProviderClient {
     PCloud(PCloudClient),
     Dropbox(DropboxClient),
     GoogleDrive(GDriveClient),
+    Local(LocalClient),
 }
 
 impl StorageProvider for ProviderClient {
@@ -17,6 +19,7 @@ impl StorageProvider for ProviderClient {
             Self::PCloud(c) => c.provider_id(),
             Self::Dropbox(c) => c.provider_id(),
             Self::GoogleDrive(c) => c.provider_id(),
+            Self::Local(c) => c.provider_id(),
         }
     }
 
@@ -25,6 +28,7 @@ impl StorageProvider for ProviderClient {
             Self::PCloud(c) => c.is_cacheable(),
             Self::Dropbox(c) => c.is_cacheable(),
             Self::GoogleDrive(c) => c.is_cacheable(),
+            Self::Local(c) => c.is_cacheable(),
         }
     }
 
@@ -33,6 +37,7 @@ impl StorageProvider for ProviderClient {
             Self::PCloud(c) => c.list_folder(folder_id).await,
             Self::Dropbox(c) => c.list_folder(folder_id).await,
             Self::GoogleDrive(c) => c.list_folder(folder_id).await,
+            Self::Local(c) => c.list_folder(folder_id).await,
         }
     }
 
@@ -45,6 +50,7 @@ impl StorageProvider for ProviderClient {
             Self::PCloud(c) => c.resolve_download_url(file_id, transcoded).await,
             Self::Dropbox(c) => c.resolve_download_url(file_id, transcoded).await,
             Self::GoogleDrive(c) => c.resolve_download_url(file_id, transcoded).await,
+            Self::Local(c) => c.resolve_download_url(file_id, transcoded).await,
         }
     }
 }
@@ -60,6 +66,10 @@ pub fn make_client(provider: ProviderId, creds: &StoredCredentials) -> Result<Pr
         ProviderId::GoogleDrive => Ok(ProviderClient::GoogleDrive(GDriveClient::new(
             creds.access_token.clone(),
         )?)),
+        // No token for a local folder: the "access token" slot holds the root path (cf. local.rs).
+        ProviderId::Local => Ok(ProviderClient::Local(LocalClient::new(
+            creds.access_token.clone().into(),
+        ))),
     }
 }
 
@@ -122,11 +132,13 @@ impl ProviderAuth for ProviderAuthClient {
     }
 }
 
-pub fn make_auth(provider: ProviderId) -> ProviderAuthClient {
+/// Errors for a provider without OAuth (local folder — connected via `connect_local` instead).
+pub fn make_auth(provider: ProviderId) -> Result<ProviderAuthClient> {
     match provider {
-        ProviderId::PCloud => ProviderAuthClient::PCloud(PCloudAuth),
-        ProviderId::Dropbox => ProviderAuthClient::Dropbox(DropboxAuth),
-        ProviderId::GoogleDrive => ProviderAuthClient::GoogleDrive(GDriveAuth),
+        ProviderId::PCloud => Ok(ProviderAuthClient::PCloud(PCloudAuth)),
+        ProviderId::Dropbox => Ok(ProviderAuthClient::Dropbox(DropboxAuth)),
+        ProviderId::GoogleDrive => Ok(ProviderAuthClient::GoogleDrive(GDriveAuth)),
+        ProviderId::Local => anyhow::bail!("{provider} has no OAuth flow"),
     }
 }
 
@@ -134,7 +146,13 @@ pub fn make_auth(provider: ProviderId) -> ProviderAuthClient {
 mod tests {
     use super::*;
 
-    const ALL: [ProviderId; 3] = [
+    const ALL: [ProviderId; 4] = [
+        ProviderId::PCloud,
+        ProviderId::Dropbox,
+        ProviderId::GoogleDrive,
+        ProviderId::Local,
+    ];
+    const OAUTH: [ProviderId; 3] = [
         ProviderId::PCloud,
         ProviderId::Dropbox,
         ProviderId::GoogleDrive,
@@ -156,18 +174,28 @@ mod tests {
     }
 
     #[test]
-    fn only_gdrive_download_targets_are_uncacheable() {
-        // GDrive bakes the live access token into the target headers (cf. stream::resolve_url).
+    fn only_gdrive_and_local_download_targets_are_uncacheable() {
+        // GDrive bakes the live access token into the target headers (cf. stream::resolve_url);
+        // local resolves with a plain path join, nothing to save.
         for p in ALL {
             let cacheable = make_client(p, &creds()).unwrap().is_cacheable();
-            assert_eq!(cacheable, p != ProviderId::GoogleDrive, "{p}");
+            let expected = !matches!(p, ProviderId::GoogleDrive | ProviderId::Local);
+            assert_eq!(cacheable, expected, "{p}");
         }
     }
 
     #[test]
+    fn make_auth_rejects_local() {
+        assert!(make_auth(ProviderId::Local).is_err());
+    }
+
+    #[test]
     fn every_authorize_url_carries_state_and_redirect_uri() {
-        for p in ALL {
-            let url = make_auth(p).authorize_url("cid", "http://localhost:1/cb", "st4te", "ch");
+        for p in OAUTH {
+            let url =
+                make_auth(p)
+                    .unwrap()
+                    .authorize_url("cid", "http://localhost:1/cb", "st4te", "ch");
             assert!(url.contains("state=st4te"), "{p}: {url}");
             assert!(
                 url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcb"),

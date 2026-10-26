@@ -1,11 +1,11 @@
-import { AlertCircle, Check, Cloud, Guitar, Lock } from 'lucide-react';
+import { AlertCircle, Check, Cloud, FolderOpen, Guitar, HardDrive, Lock } from 'lucide-react';
 import { type CSSProperties, useEffect, useState } from 'react';
 import Button from '@/components/atoms/Button';
 import Spinner from '@/components/atoms/Spinner';
 import FolderPicker from '@/components/organisms/FolderPicker';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 import cn from '@/lib/cn';
-import { listMethods, oauthStart } from '@/lib/ipc';
+import { connectLocal, listMethods, oauthStart } from '@/lib/ipc';
 import { PROVIDERS } from '@/lib/providers';
 import type { Provider } from '@/types/model';
 
@@ -25,6 +25,68 @@ const OAUTH_SCOPES = [
   'Aucune modification ni suppression',
 ];
 
+/** What differs on the card between an OAuth provider and a local folder. */
+function connectCopy(provider: Provider) {
+  if (provider === 'local') {
+    return {
+      intro: (
+        <>
+          Choisis un dossier sur ton ordinateur ou sur un{' '}
+          <strong className="text-fg">partage réseau monté</strong> (lecteur réseau, NAS…). Les
+          fichiers sont lus directement, sans compte ni connexion internet.
+        </>
+      ),
+      action: (
+        <>
+          <FolderOpen size={18} /> Choisir un dossier
+        </>
+      ),
+      pending: 'Choix du dossier...',
+      footer: (
+        <>
+          <HardDrive size={14} /> Lecture seule · rien ne quitte ta machine
+        </>
+      ),
+    };
+  }
+
+  return {
+    intro: (
+      <>
+        Chelou Track utilise l'authentification sécurisée{' '}
+        <strong className="text-fg">OAuth&nbsp;2.0</strong>. Tu seras redirigé vers ton cloud pour
+        autoriser l'accès — ton mot de passe ne transite jamais par l'app.
+      </>
+    ),
+    action: (
+      <>
+        <Cloud size={18} /> Continuer avec {provider}
+      </>
+    ),
+    pending: 'Connexion OAuth en cours...',
+    footer: (
+      <>
+        <Lock size={14} /> OAuth 2.0 · aucun mot de passe stocké
+      </>
+    ),
+  };
+}
+
+/**
+ * Make `provider` the active source. Blocks until OAuth completes (throws on error/cancel), or,
+ * for a local folder, until the native dialog closes — false if it was cancelled, which isn't
+ * an error, just back to the provider choice.
+ */
+async function authenticate(provider: Provider): Promise<boolean> {
+  if (provider === 'local') {
+    return connectLocal();
+  }
+
+  await oauthStart(provider);
+
+  return true;
+}
+
 export default function ConnectScreen({
   startAtFolder = false,
   provider: connectedProvider,
@@ -39,12 +101,17 @@ export default function ConnectScreen({
     dispatchBreadcrumb({ type: 'clear' });
   }, [dispatchBreadcrumb]);
 
-  const startOAuth = async () => {
+  const copy = connectCopy(provider);
+
+  const connect = async () => {
     setOauthErr(null);
-    setPhase('consent'); // show spinner before opening the popup
+    setPhase('consent'); // show spinner before opening the popup / folder dialog
 
     try {
-      await oauthStart(provider); // blocks until OAuth complete or cancelled
+      if (!(await authenticate(provider))) {
+        setPhase('idle');
+        return;
+      }
 
       // Reconnecting a provider that already has local methods (e.g. after a logout/relogin
       // with the same account) — skip straight to the library instead of forcing the user back
@@ -171,11 +238,7 @@ export default function ConnectScreen({
                 })}
             </div>
 
-            <p className="m-0 mb-4 text-fg2 text-sm/relaxed">
-              Chelou Track utilise l'authentification sécurisée{' '}
-              <strong className="text-fg">OAuth&nbsp;2.0</strong>. Tu seras redirigé vers ton cloud
-              pour autoriser l'accès — ton mot de passe ne transite jamais par l'app.
-            </p>
+            <p className="m-0 mb-4 text-fg2 text-sm/relaxed">{copy.intro}</p>
 
             <div className="m-0 mb-5 flex flex-col gap-2">
               {OAUTH_SCOPES.map((s) => (
@@ -192,23 +255,19 @@ export default function ConnectScreen({
               variant="primary"
               size="lg"
               className="w-full"
-              onClick={startOAuth}
+              onClick={connect}
               disabled={phase === 'consent'}
             >
               {phase === 'consent' ? (
                 <>
-                  <Spinner light /> Connexion OAuth en cours...
+                  <Spinner light /> {copy.pending}
                 </>
               ) : (
-                <>
-                  <Cloud size={18} /> Continuer avec {provider}
-                </>
+                copy.action
               )}
             </Button>
 
-            <div className="mt-5 flex items-center gap-2 text-fg3 text-xs">
-              <Lock size={14} /> OAuth 2.0 · aucun mot de passe stocké
-            </div>
+            <div className="mt-5 flex items-center gap-2 text-fg3 text-xs">{copy.footer}</div>
           </div>
         ) : (
           <FolderPicker provider={provider} onConnected={onConnected} />

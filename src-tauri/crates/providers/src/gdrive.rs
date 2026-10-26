@@ -57,7 +57,7 @@ impl StorageProvider for GDriveClient {
         file_id: &str,
         _transcoded: bool,
     ) -> anyhow::Result<DownloadTarget> {
-        Ok(DownloadTarget {
+        Ok(DownloadTarget::Http {
             url: format!(
                 "https://www.googleapis.com/drive/v3/files/{}?alt=media",
                 crate::oauth::percent_encode(file_id)
@@ -246,9 +246,12 @@ mod tests {
     async fn resolve_download_url_sends_token_as_header_not_in_url() {
         let client = GDriveClient::new("tok".into()).unwrap();
         let target = client.resolve_download_url("fid", false).await.unwrap();
-        assert!(!target.url.contains("tok"));
+        let DownloadTarget::Http { url, headers } = target else {
+            panic!("gdrive target must be HTTP");
+        };
+        assert!(!url.contains("tok"));
         assert_eq!(
-            target.headers,
+            headers,
             vec![("Authorization".to_owned(), "Bearer tok".to_owned())]
         );
     }

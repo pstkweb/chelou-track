@@ -1,6 +1,6 @@
 // Data model — source of truth: docs/ARCHITECTURE.md §8
 // Mirrors the Rust structs in src-tauri/crates/manifest/src/lib.rs.
-export type Provider = 'pcloud' | 'gdrive' | 'dropbox';
+export type Provider = 'pcloud' | 'gdrive' | 'dropbox' | 'local';
 
 export interface Method {
   /** On-disk manifest format version — rewritten by Rust on every save (SCHEMA_VERSION). */

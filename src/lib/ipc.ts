@@ -10,6 +10,14 @@ export async function oauthStart(provider: Provider): Promise<void> {
   await invoke('oauth_start', { provider });
 }
 
+/**
+ * Pick a folder (local disk or network mount) in the native dialog and make it the active
+ * source — the local provider's equivalent of oauthStart. Resolves false if cancelled.
+ */
+export async function connectLocal(): Promise<boolean> {
+  return invoke('connect_local');
+}
+
 export async function logout(): Promise<void> {
   await invoke('logout');
 }
