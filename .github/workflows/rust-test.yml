@@ -28,4 +28,4 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - run: cargo test -p chelou-manifest -p chelou-providers
+      - run: cargo test -p chelou-manifest -p chelou-providers -p chelou-audio-core

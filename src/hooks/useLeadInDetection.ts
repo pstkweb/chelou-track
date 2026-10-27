@@ -1,12 +1,16 @@
 import { type RefObject, useEffect, useState } from 'react';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { detectLeadingSilence } from '@/lib/silence-detection';
+import type { BackingInfo } from '@/lib/ipc';
+import { leadInFromSilence } from '@/lib/lead-in';
 import type { BackingTrack, Lesson, Method } from '@/types/model';
 
 export default function useLeadInDetection(
   method: Method,
   lesson: Lesson,
   backingTrackSpeed: BackingTrack | undefined,
+  // Track chargé par le moteur : porte la fin du silence de tête, détectée côté Rust au
+  // décodage (aucun téléchargement supplémentaire ici).
+  backingInfo: BackingInfo | undefined,
   scoreLoadedRef: RefObject<Promise<void>>,
   beatsPerBarRef: RefObject<number>,
   notatedBpmRef: RefObject<number>,
@@ -14,9 +18,9 @@ export default function useLeadInDetection(
   const { setLeadIn } = useLibrary();
   const [detectedLeadInMs, setDetectedLeadInMs] = useState<number | undefined>(undefined);
 
-  // Runs detection in the background whenever a track without a cached lead-in is
-  // selected, and persists the result — this is what actually populates
-  // leadInMsOverride for real usage (the debug screen never writes it).
+  // Dès que le moteur a chargé un track sans lead-in en cache, calcule le lead-in à partir du
+  // silence détecté au décodage et le persiste — c'est ce qui remplit réellement
+  // leadInMsOverride (l'écran de debug ne l'écrit jamais).
   useEffect(() => {
     // Un nouveau track (autre bpm ou autre tab) n'a pas hérité du lead-in du précédent —
     // sans ce reset, le local override du track d'avant resterait actif le temps que la
@@ -31,24 +35,28 @@ export default function useLeadInDetection(
     let cancelled = false;
     const track = backingTrackSpeed;
 
-    Promise.all([
-      detectLeadingSilence(method.source.provider, track.audio.fileId),
-      scoreLoadedRef.current,
-    ])
-      .then(([silenceMs]) => {
-        if (cancelled || silenceMs === undefined) {
+    scoreLoadedRef.current
+      .then(() => {
+        if (cancelled) {
           return;
         }
-        const bpm = track.bpm || notatedBpmRef.current;
-        const leadInMs =
-          silenceMs + (method.defaultCountInBars * beatsPerBarRef.current * 60000) / bpm;
+        const leadInMs = leadInFromSilence(
+          track.audio.fileId,
+          backingInfo,
+          method.defaultCountInBars,
+          beatsPerBarRef.current,
+          track.bpm || notatedBpmRef.current,
+        );
+        if (leadInMs === undefined) {
+          return;
+        }
         // Utilisable dès maintenant pour cette session (count-in, sync curseur) — la
         // persistance ci-dessous est fire-and-forget et ne fait pas revivre l'état local.
         setDetectedLeadInMs(leadInMs);
         return setLeadIn(method.id, lesson.id, track.audio.fileId, leadInMs);
       })
       .catch((err) => {
-        console.warn('leading-silence detection/persistence failed', err);
+        console.warn('lead-in persistence failed', err);
       });
 
     return () => {
@@ -56,9 +64,9 @@ export default function useLeadInDetection(
     };
   }, [
     backingTrackSpeed,
+    backingInfo,
     method.id,
     method.defaultCountInBars,
-    method.source.provider,
     lesson.id,
     beatsPerBarRef,
     notatedBpmRef,

@@ -1,5 +1,6 @@
 import {
   ChevronLeft,
+  LoaderCircle,
   Metronome,
   Music,
   Pause,
@@ -13,12 +14,12 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
 import useAlphaTabPlayer from '@/hooks/useAlphaTabPlayer';
+import useBackingEngine from '@/hooks/useBackingEngine';
 import useBackingTrackPlayback from '@/hooks/useBackingTrackPlayback';
 import useLeadInDetection from '@/hooks/useLeadInDetection';
 import useMetronome from '@/hooks/useMetronome';
 import cn from '@/lib/cn';
 import { type Chapter, searchSiblings } from '@/lib/method-view';
-import { audioUrl } from '@/lib/stream';
 import type { BackingGroup, Lesson, Method, TabSet } from '@/types/model';
 import Button from '../atoms/Button';
 import Chip from '../atoms/Chip';
@@ -33,15 +34,53 @@ type TabScreenProps = {
   tab: TabSet;
 };
 
-function TabLoadError({ message }: { message: string | undefined }) {
+function LoadError({ what, message }: { what: string; message: string | undefined }) {
   if (!message) {
     return null;
   }
 
   return (
     <div className="text-center text-fg2 text-sm">
-      Impossible de charger la tablature : {message}
+      Impossible de charger {what} : {message}
     </div>
+  );
+}
+
+// Le track est téléchargé et décodé avant de pouvoir jouer : sans état visible, un clic
+// pendant le chargement était ignoré sans rien montrer.
+function PlayButton({
+  loading,
+  ready,
+  playing,
+  onClick,
+}: {
+  loading: boolean;
+  // Faux tant qu'aucun track n'est chargé — y compris après un échec, où le spinner n'a plus
+  // lieu de tourner à côté du message d'erreur.
+  ready: boolean;
+  playing: boolean;
+  onClick: () => void;
+}) {
+  let icon = <Play size={24} />;
+  if (loading) {
+    icon = <LoaderCircle size={24} className="animate-spin" />;
+  } else if (playing) {
+    icon = <Pause size={24} />;
+  }
+
+  return (
+    <Button
+      variant="primary"
+      onClick={onClick}
+      disabled={loading || !ready}
+      title={loading ? 'Chargement de la backing track…' : undefined}
+      className={cn(
+        'size-13! rounded-full! border border-transparent p-0',
+        (loading || !ready) && 'opacity-40',
+      )}
+    >
+      {icon}
+    </Button>
   );
 }
 
@@ -56,7 +95,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   const [mix, setMix] = useState({ backing: 100, click: 100 });
 
   const tabElmt = useRef<HTMLDivElement>(null);
-  const audioElmt = useRef<HTMLAudioElement>(null);
+  const engine = useBackingEngine(method.source.provider, backingTrackSpeed?.audio.fileId);
 
   const { openLesson } = useNavigation();
   const [previousLesson, nextLesson] = searchSiblings(chapter, lesson.order);
@@ -69,7 +108,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     loadError: tabLoadError,
     trackBpmRef,
     leadInMsRef,
-  } = useAlphaTabPlayer(tabElmt, audioElmt, tab.files[0]?.file.fileId, method.source.provider);
+  } = useAlphaTabPlayer(tabElmt, engine, tab.files[0]?.file.fileId, method.source.provider);
   // Certains backing tracks ont un BPM à 0 (tempo inconnu côté source) : on retombe alors
   // sur le tempo noté dans le fichier de tablature plutôt que de diviser par zéro partout.
   const effectiveBpm = backingTrackSpeed?.bpm || notatedBpm;
@@ -82,19 +121,14 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     method,
     lesson,
     backingTrackSpeed,
+    engine.info,
     scoreLoadedRef,
     beatsPerBarRef,
     notatedBpmRef,
   );
-  const {
-    countIn,
-    playing,
-    resetPlayback,
-    onTogglePlay,
-    audioProps: { onPause, onPlay, onRateChange, onTimeUpdate, onVolumeChange },
-  } = useBackingTrackPlayback(
+  const { countIn, playing, resetPlayback, onTogglePlay } = useBackingTrackPlayback(
     alphaTabRef,
-    audioElmt,
+    engine,
     leadInMsRef,
     notatedBpmRef,
     beatsPerBarRef,
@@ -109,16 +143,13 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   // jusqu'au prochain redémarrage de l'app, cf. bug rapporté (pas de count-in, tout désynchro).
   const effectiveLeadInMs = backingTrackSpeed?.leadInMsOverride ?? detectedLeadInMs;
 
-  // Volume de la piste backing track — appliqué impérativement (le prop `volume` de <audio>
-  // n'est pas synchronisé par React, il faut passer par le DOM directement). Pas besoin de
-  // redéclencher au changement de piste : c'est le même <audio> qui change de `src`, son
-  // volume natif (propriété de l'élément, pas de la ressource chargée) reste inchangé.
+  // Volume de la piste backing track (gain linéaire), envoyé au moteur — renvoyé aussi à chaque
+  // chargement : si la sortie change de fréquence, le moteur recrée son lecteur à gain 1 et le
+  // réglage serait perdu.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setVolume est un simple invoke
   useEffect(() => {
-    const audio = audioElmt.current;
-    if (audio) {
-      audio.volume = mix.backing / 100;
-    }
-  }, [mix.backing]);
+    engine.setVolume(mix.backing / 100);
+  }, [mix.backing, engine.info]);
 
   // Tient à jour les refs que useAlphaTabPlayer.seekTo() lit pour convertir un seek (clic
   // sur la tablature) en position audio réelle — seekTo vit dans le hook et n'a pas accès
@@ -175,24 +206,11 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               </div>
             </div>
             <div className="flex flex-col gap-6">
-              <TabLoadError message={tabLoadError} />
+              <LoadError what="la tablature" message={tabLoadError} />
+              <LoadError what="la backing track" message={engine.error} />
               <div ref={tabElmt} className="scroll flex w-full flex-1 justify-center" />
             </div>
           </div>
-          {backingTrackSpeed && (
-            <audio
-              className="hidden"
-              src={audioUrl(method.source.provider, backingTrackSpeed.audio.fileId)}
-              ref={audioElmt}
-              onTimeUpdate={onTimeUpdate}
-              onSeeked={onTimeUpdate}
-              onPlay={onPlay}
-              onPause={onPause}
-              onEnded={onPause}
-              onVolumeChange={onVolumeChange}
-              onRateChange={onRateChange}
-            />
-          )}
         </div>
       </div>
 
@@ -209,13 +227,12 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
               <IconButton onClick={resetPlayback} title="Début">
                 <SkipBack size={20} />
               </IconButton>
-              <Button
-                variant="primary"
+              <PlayButton
+                loading={engine.loading}
+                ready={engine.info !== undefined}
+                playing={playing}
                 onClick={onTogglePlay}
-                className="size-13! rounded-full! border border-transparent p-0"
-              >
-                {playing ? <Pause size={24} /> : <Play size={24} />}
-              </Button>
+              />
             </div>
 
             <BackingTrackPicker

@@ -48,10 +48,6 @@ export function videoUrl(provider: Provider, fileId: string, transcoded = false)
   return mediaUrl('video', provider, fileId, transcoded);
 }
 
-export function audioUrl(provider: Provider, fileId: string): string {
-  return mediaUrl('audio', provider, fileId, false);
-}
-
 /**
  * fetch() a stream URL, rejecting on a non-2xx status: Rust answers failures with a 500 and a
  * text body, which a bare fetch() resolves as if it were the file (then cached, decoded…).

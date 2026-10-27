@@ -9,6 +9,8 @@ export default function useAppUpdater() {
   useEffect(() => {
     (async function checkUpdates() {
       try {
+        if (import.meta.env.DEV) return;
+
         const update = await check();
 
         if (update) {

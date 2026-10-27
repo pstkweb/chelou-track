@@ -1,10 +1,12 @@
 import type { AlphaTabApi, synth } from '@coderline/alphatab';
 import { type RefObject, useRef, useState } from 'react';
+import type { BackingStatus } from '@/lib/ipc';
 import type { BackingTrack, Method } from '@/types/model';
+import type { BackingEngine } from './useBackingEngine';
 
 export default function useBackingTrackPlayback(
   alphaTabRef: RefObject<AlphaTabApi | null>,
-  audioElmt: RefObject<HTMLAudioElement | null>,
+  engine: BackingEngine,
   leadInMsRef: RefObject<number | undefined>,
   notatedBpmRef: RefObject<number>,
   beatsPerBarRef: RefObject<number>,
@@ -17,27 +19,22 @@ export default function useBackingTrackPlayback(
   // undefined = overlay masqué ; 0 = "--" (lecture démarrée, count-in audio pas encore
   // commencé) ; 1..N = numéro du temps de count-in affiché.
   const [countIn, setCountIn] = useState<number | undefined>(undefined);
-
-  const updateTimer = useRef<number>(null);
+  // Dernier état de lecture vu dans le statut du moteur, pour détecter les transitions
+  // lecture ↔ arrêt (l'équivalent des évènements play/pause/ended de l'ancien <audio>).
+  const wasPlaying = useRef(false);
 
   const stopPlayback = () => {
     setPlaying(false);
-    audioElmt.current?.pause();
+    engine.pause();
   };
 
   // Remet la lecture au tout début : audio, curseur AlphaTab et overlay de count-in.
-  // Utilisé par le bouton "Début" et à chaque changement de backing track (le simple
-  // changement de `src` sur <audio> devrait déjà remettre currentTime à 0, mais on le
-  // force explicitement pour ne dépendre d'aucune subtilité de timing du navigateur).
+  // Utilisé par le bouton "Début" et à chaque changement de backing track.
   const resetPlayback = () => {
     stopPlayback();
     setCountIn(undefined);
     resetMetronomeBeat();
-
-    const audio = audioElmt.current;
-    if (audio) {
-      audio.currentTime = 0;
-    }
+    engine.seek(0);
 
     const player = alphaTabRef.current?.player;
     if (player) {
@@ -50,11 +47,11 @@ export default function useBackingTrackPlayback(
       stopPlayback();
     } else {
       setPlaying(true);
-      audioElmt.current?.play();
+      engine.play();
     }
   };
 
-  // trackBpm / notatedBpm — cf. le commentaire de la mise à l'échelle en fin de onTimeUpdate.
+  // trackBpm / notatedBpm — cf. le commentaire de la mise à l'échelle en fin de onStatus.
   const tempoScale = () =>
     (backingTrackSpeed?.bpm || notatedBpmRef.current) / notatedBpmRef.current;
 
@@ -63,38 +60,67 @@ export default function useBackingTrackPlayback(
   const pausedCursorMs = (audioMs: number, leadInMs: number | undefined) =>
     leadInMs === undefined ? audioMs : Math.max(0, (audioMs - leadInMs) * tempoScale());
 
-  const onTimeUpdate = () => {
-    const audio = audioElmt.current;
-    const api = alphaTabRef.current;
+  const onStarted = () => {
+    alphaTabRef.current?.play();
+    // Le métronome ne tique que via onStatus (voir useMetronome) : ce reset garantit juste
+    // que le tout premier temps de cette reprise sonne, même si son index coïncide avec le
+    // dernier joué avant l'arrêt précédent.
+    resetMetronomeBeat();
+  };
 
-    const player = api?.player;
+  const onStopped = () => {
+    alphaTabRef.current?.pause();
+    setCountIn(undefined);
+    // Couvre aussi la fin naturelle du track : sans ça, "playing" reste bloqué à true et le
+    // bouton continue d'afficher "Pause" alors que ça s'est arrêté.
+    setPlaying(false);
+  };
 
-    if (!audio || !player) {
+  // Transitions lecture ↔ arrêt (l'équivalent des évènements play/pause/ended de l'ancien <audio>).
+  const onTransition = (s: BackingStatus) => {
+    if (s.playing === wasPlaying.current) {
+      return;
+    }
+    wasPlaying.current = s.playing;
+    if (s.playing) {
+      onStarted();
+      return;
+    }
+    onStopped();
+    if (s.ended) {
+      // Fin du track : retour au début, le curseur suit via le statut du seek (branche
+      // « pause » de onStatus) au lieu de rester bloqué en fin de tablature.
+      engine.seek(0);
+    }
+  };
+
+  // Appelé à chaque statut du moteur (~60 Hz pendant la lecture, à chaque changement sinon) :
+  // le moteur est l'horloge maître, AlphaTab ne fait que suivre.
+  const onStatus = (s: BackingStatus) => {
+    onTransition(s);
+
+    const player = alphaTabRef.current?.player;
+    if (!player) {
       return;
     }
 
     const output = player.output as unknown as synth.IExternalMediaSynthOutput;
-    const audioMs = audio.currentTime * 1000;
-    // Lu depuis la ref (toujours à jour), pas depuis la closure du composant : l'interval
-    // de ce onTimeUpdate est capturé une fois dans onPlay et ne se recrée pas tout seul si
-    // la détection se termine en cours de lecture (track jamais joué avant, cf. bug rapporté).
+    const audioMs = s.positionMs;
+    // Lu depuis la ref (toujours à jour), pas depuis une closure : la détection du silence peut
+    // se terminer en cours de lecture (track jamais joué avant).
     const leadInMs = leadInMsRef.current;
 
-    if (audio.paused) {
-      // Un dernier timeupdate peut arriver juste après la pause (ordre timeupdate/pause
-      // non garanti) — se fier à l'état réel de l'audio plutôt qu'à l'ordre des événements.
+    if (!s.playing) {
+      // Seek pendant la pause : le curseur suit quand même la nouvelle position, sans
+      // métronome ni overlay.
       setCountIn(undefined);
-      // Seek pendant la pause (onSeeked) : le curseur suit quand même la nouvelle position,
-      // sans métronome ni overlay.
       output.updatePosition(pausedCursorMs(audioMs, leadInMs));
       return;
     }
 
     if (leadInMs === undefined) {
-      // Pas encore détecté/persisté — comportement d'avant : position brute. On affiche
-      // quand même "--" (countIn=0) : la lecture a bel et bien commencé (et le métronome
-      // tourne déjà), juste sans timing de count-in connu pour l'instant — accent calé sur
-      // t=0 faute de mieux, corrigé dès que countInStartMs devient connu.
+      // Pas encore détecté/persisté : position brute, "--" affiché (la lecture a bel et bien
+      // commencé, sans timing de count-in connu), accent calé sur t=0 faute de mieux.
       tickMetronome(audioMs, 0, beatsPerBarRef.current);
       setCountIn(0);
       // updatePosition (pas tickPosition : son setter déclenche un vrai seek à chaque appel,
@@ -107,22 +133,19 @@ export default function useBackingTrackPlayback(
       (method.defaultCountInBars * beatsPerBarRef.current * 60000) /
       (backingTrackSpeed?.bpm || notatedBpmRef.current);
     const countInStartMs = leadInMs - countInDurationMs;
-    // Piloté par la position audio réelle (pas un setInterval séparé) : reste synchronisé
-    // avec play/pause (ne tique pas tant que ce onTimeUpdate ne tourne pas) et avec un seek
-    // ou un changement de piste (la position change, le prochain temps calculé suit).
-    // Ancré sur countInStartMs pour que l'accent tombe sur le premier vrai temps du
-    // count-in, pas sur un temps arbitraire décalé par la durée du silence de tête.
+    // Piloté par la position du moteur : reste synchronisé avec play/pause, seek et changement
+    // de piste. Ancré sur countInStartMs pour que l'accent tombe sur le premier vrai temps du
+    // count-in, pas sur un temps décalé par la durée du silence de tête.
     tickMetronome(audioMs, countInStartMs, beatsPerBarRef.current);
 
     if (audioMs < countInStartMs) {
-      // Encore dans le silence de tête : "--" — la lecture (et le métronome) ont bien
-      // démarré, le count-in audio n'a juste pas encore commencé.
+      // Encore dans le silence de tête : "--".
       setCountIn(0);
       return;
     }
 
     if (audioMs < leadInMs) {
-      // Count-in en cours : affiche le temps courant (1-indexé), curseur figé sur la 1ère note.
+      // Count-in en cours : temps courant (1-indexé), curseur figé sur la 1ère note.
       const totalBeats = method.defaultCountInBars * beatsPerBarRef.current;
       const beatsIntoCountIn = Math.floor(
         ((audioMs - countInStartMs) / 60000) * (backingTrackSpeed?.bpm || notatedBpmRef.current),
@@ -142,68 +165,12 @@ export default function useBackingTrackPlayback(
     output.updatePosition((audioMs - leadInMs) * tempoScale());
   };
 
-  const onPlay = () => {
-    const api = alphaTabRef.current;
-
-    if (!api) {
-      return;
-    }
-
-    api.play();
-    updateTimer.current = window.setInterval(onTimeUpdate, 50);
-    // Le métronome ne tique plus que via onTimeUpdate (voir useMetronome) : ce reset
-    // garantit juste que le tout premier temps de cette reprise sonne, même si son index
-    // coïncide par coïncidence avec le dernier joué avant l'arrêt précédent.
-    resetMetronomeBeat();
-  };
-
-  const onPause = () => {
-    const api = alphaTabRef.current;
-
-    if (api) {
-      api.pause();
-    }
-
-    if (updateTimer.current) {
-      clearInterval(updateTimer.current);
-      updateTimer.current = null;
-    }
-
-    // Pas de stopMetronome() à appeler : le métronome ne tique plus que depuis
-    // onTimeUpdate, qui ne tourne déjà plus une fois l'interval nettoyé ci-dessus.
-    setCountIn(undefined);
-    // Couvre aussi la fin naturelle de la lecture (onEnded → onPause) : sans ça, "playing"
-    // reste bloqué à true et le bouton continue d'afficher "Pause" alors que ça s'est arrêté.
-    setPlaying(false);
-  };
-
-  const onVolumeChange = () => {
-    const audio = audioElmt.current;
-    const api = alphaTabRef.current;
-
-    if (!audio || !api) {
-      return;
-    }
-
-    api.masterVolume = audio.volume;
-  };
-
-  const onRateChange = () => {
-    const audio = audioElmt.current;
-    const api = alphaTabRef.current;
-
-    if (!audio || !api) {
-      return;
-    }
-
-    api.playbackSpeed = audio.playbackRate;
-  };
+  engine.onStatus(onStatus);
 
   return {
     playing,
     countIn,
     resetPlayback,
     onTogglePlay,
-    audioProps: { onTimeUpdate, onPlay, onPause, onVolumeChange, onRateChange },
   };
 }

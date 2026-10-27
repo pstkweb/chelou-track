@@ -10,7 +10,9 @@ Application desktop Windows pour suivre des méthodes de guitare achetées (vid�
 exercices) stockées sur pCloud. Lecture des vidéos dans l'ordre du cursus, et vue
 ergonomique synchronisant un **backing track audio** avec la **tablature GuitarPro**
 correspondante. Objectif transverse : **lecture en streaming sans téléchargement** et
-**le moins d'actions manuelles possible** avant de pouvoir utiliser l'outil.
+**le moins d'actions manuelles possible** avant de pouvoir utiliser l'outil. Exception
+assumée : le backing track de la vue synchro est téléchargé et décodé en entier avant d'être
+joué (§7) — un ralentissement du provider ne doit jamais devenir une coupure audio.
 
 ## 2. Stack technique
 
@@ -20,12 +22,11 @@ correspondante. Objectif transverse : **lecture en streaming sans téléchargeme
   afficher *et* faire défiler un curseur sur des fichiers GuitarPro. Gère `.gp3/.gp4/.gp5`,
   `.gpx` (GP6) et `.gp` (GP7+).
 - **PDF : PDF.js** (uniquement pour la section « documents », voir §10).
-- **Audio : balise `<audio>`** pointée sur `stream://audio/{fileId}` — streaming progressif
-  (mêmes Range requests que la vidéo, cohérent avec l'objectif « pas de téléchargement », §1),
-  `playbackRate` natif avec préservation du pitch pour les variantes de tempo.
-  `AudioContext`/`decodeAudioData` réservé à un usage ponctuel et séparé : l'analyse en tâche de
-  fond du silence de tête d'un track (§7), qui a besoin d'un buffer décodé mais pas de lecture
-  temps réel.
+- **Audio : moteur natif Rust** (`cpal`, sous-crates `chelou-audio-core` et
+  `chelou-audio-engine`, §7) — il possède la sortie audio du système et joue le backing track,
+  téléchargé puis décodé en entier (`symphonia`) et rééchantillonné (`rubato`) à la fréquence de
+  la sortie. Le track est lu à vitesse 1 : c'est lui qui donne le tempo. Le métronome reste
+  pour l'instant un `AudioContext` côté WebView, déclenché par la position du moteur.
 
 Electron a été explicitement écarté.
 
@@ -93,12 +94,10 @@ chaque requête porte `?t=<jeton>` (128 bits aléatoires par session, servi au W
 commande `get_media_token`, 403 sinon), et le CORS n'est accordé qu'à l'origine de l'app
 (`tauri://localhost`, plus `http://localhost:1420` en debug), jamais `*`.
 
-Le `.wav` : streamé via `<audio src="stream://audio/{fileId}">`, même mécanisme Range que la
-vidéo — lecture immédiate sans attendre le téléchargement complet. Seule exception : la
-détection du silence de tête (§7) télécharge le fichier en entier et le décode via
-`decodeAudioData` — coût accepté car ponctuel (une fois par track, résultat mis en cache dans
-`leadInMsOverride`), sans rapport avec la lecture elle-même. Le `.gp`/`.gpx` est minuscule,
-chargé en `ArrayBuffer`.
+Le backing track (`.wav`/`.mp3`/`.flac`) ne passe plus par `stream://` : la commande
+`backing_load` le télécharge en entier côté Rust (même `resolve_media`, sans Range) pour le
+moteur audio natif (§7). La route `stream://audio` reste servie mais n'a plus d'appelant côté
+WebView. Le `.gp`/`.gpx` est minuscule, chargé en `ArrayBuffer`.
 
 ## 5. Frontière Rust / TS
 
@@ -126,11 +125,13 @@ Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
   `getfilelink` / `getvideolink`.
 - Handler du protocole `stream://` (Range + fallback transcodé).
 - Persistance du manifeste local (§9).
+- Moteur audio natif (§7) : sortie audio, lecture du backing track, détection du silence de
+  tête, statut de lecture poussé au WebView.
 
 **TS (frontend) :**
 - Navigation catalogue (méthode → leçons dans l'ordre).
 - Lecteur vidéo (`<video>` pointant sur `stream://`).
-- Vue synchro (AlphaTab + `<audio>` + boucle de synchro, §7).
+- Vue synchro (AlphaTab piloté par la position du moteur natif + boucle de synchro, §7).
 - Viewer documents (PDF.js + viewer image, §10).
 - **Aucun secret, aucun appel réseau direct vers pCloud** : uniquement des `invoke()` vers Rust.
 
@@ -180,7 +181,17 @@ est un vrai document → viewer (§10).
 ## 7. Synchronisation — audio horloge maître
 
 **Modèle mental : l'audio est l'horloge maître, AlphaTab est piloté (esclave).** On ne demande
-jamais à AlphaTab de « jouer ». On lit la position du `.wav` et on la pousse à AlphaTab.
+jamais à AlphaTab de « jouer ». On lit la position du backing track et on la pousse à AlphaTab.
+
+**L'horloge est le moteur audio natif** (`chelou-audio-engine`), pas le WebView : il possède la
+sortie audio du système (mode « sortie seule » : périphérique par défaut, WASAPI partagé sur
+Windows, aucune configuration), et sa tête de lecture (compteur d'échantillons du
+`BackingPlayer`, `chelou-audio-core`) est la seule source de vérité. Le track est entièrement
+téléchargé, décodé et rééchantillonné à la fréquence de la sortie avant de pouvoir jouer
+(commande `backing_load`). Le thread audio ne fait que du calcul : ni allocation, ni verrou
+bloquant, ni E/S, ni libération (un track remplacé repart par une file lock-free pour être
+libéré ailleurs). Si la sortie disparaît, le moteur retente chaque seconde d'ouvrir la nouvelle
+sortie par défaut ; si sa fréquence a changé, la vue recharge le track.
 
 Caractéristiques des backing tracks (confirmées) : **tempo constant** par fichier (plusieurs
 versions à des BPM différents pour l'apprentissage), **count-in quasi systématique d'une mesure**,
@@ -193,12 +204,12 @@ démarrant à `audioMs = 0` ne tenait pas en pratique).
 leadInMs = silenceMs + countInBars × beatsPerBar × 60000 / trackBpm
 ```
 
-- `silenceMs` = fin du silence de tête, détectée une seule fois par track par une analyse
-  d'amplitude (`src/lib/silence-detection.ts` — seuil sur le pic par fenêtre de 20 ms, calibré
-  sur un percentile bas des premières fenêtres). Nécessite un buffer décodé
-  (`AudioContext.decodeAudioData` sur un téléchargement complet séparé, cf. §4) — seul endroit du
-  code qui décode un backing track entier ; la lecture elle-même ne s'en sert pas. Résultat mis
-  en cache dans `leadInMsOverride` (persistance Rust), jamais recalculé une fois posé.
+- `silenceMs` = fin du silence de tête, détectée par une analyse d'amplitude
+  (`chelou_audio_core::silence` — seuil sur le pic par fenêtre de 20 ms, calibré sur un
+  percentile bas des premières fenêtres), faite par `backing_load` sur le track déjà décodé pour
+  la lecture (aucun téléchargement supplémentaire) et renvoyée au WebView. Le `leadInMs` qui en
+  découle est mis en cache dans `leadInMsOverride` (persistance Rust), jamais recalculé une
+  fois posé.
 - `trackBpm` vient du nom de fichier ; absent/à `0` → repli sur le tempo noté du `.gp`
   (`notatedBpm`) plutôt que de diviser par zéro.
 - `beatsPerBar` vient de la signature rythmique fournie par AlphaTab.
@@ -207,13 +218,13 @@ leadInMs = silenceMs + countInBars × beatsPerBar × 60000 / trackBpm
   *un* nombre une fois. Override par track seulement pour les rares exceptions.
 - `leadInMsOverride` réglé manuellement garde toujours la priorité sur la détection auto.
 
-**Boucle de synchro (TS), pilotée depuis la balise `<audio>`** — pas de `requestAnimationFrame`
-ni d'`AudioContext` : `audio.currentTime` est la seule source de vérité, relue à chaque évènement
-`timeupdate`/`seeked` du `<audio>` et, pendant la lecture, par un `setInterval` de 50 ms (filet de
-sécurité, la fréquence native de `timeupdate` n'étant garantie par aucune spec) :
+**Boucle de synchro (TS), pilotée par le statut du moteur** — la commande `backing_status`
+pousse via un `tauri::ipc::Channel` la position, l'état de lecture et la fin du track, toutes
+les 16 ms pendant la lecture et à chaque changement sinon (pause, seek, chargement, fin).
+`useBackingTrackPlayback.onStatus` applique :
 
 ```
-audioMs = audio.currentTime * 1000
+audioMs = status.positionMs
 
 // audioMs < silenceMs         : silence de tête, rien à afficher
 // silenceMs ≤ audioMs < leadInMs : count-in, overlay avec le numéro du temps
@@ -230,18 +241,18 @@ Reste correct tant que le tempo est constant sur tout le fichier (hypothèse pos
 pas de tempo variable interne, cf. `syncPoints` abandonné en faveur de cette approche plus
 simple).
 
-**Branchement AlphaTab :** mode média externe (`PlayerMode.EnabledExternalMedia`), la balise
-`<audio>` branchée comme `IExternalMediaHandler` — `play`/`pause`/`volume`/`playbackRate`
-délégués directement à l'élément DOM. `seekTo(time)` applique la transformation inverse :
-`audio.currentTime = (time / scale + leadInMs) / 1000`. **⚠️ Les signatures exactes d'AlphaTab
+**Branchement AlphaTab :** mode média externe (`PlayerMode.EnabledExternalMedia`), un
+`IExternalMediaHandler` qui délègue au moteur (`play`/`pause`/`masterVolume` → commandes
+`backing_*`, `backingTrackDuration` = durée du track décodé, `playbackRate` fixé à 1).
+`seekTo(time)` applique la transformation inverse : `backingSeek(time / scale + leadInMs)`. **⚠️ Les signatures exactes d'AlphaTab
 ont changé selon les versions — vérifier l'API contre la version réellement installée plutôt que
 de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
 
 **Fallbacks :**
 - Track sans BPM dans le nom → repli sur le tempo noté du `.gp`, pas d'interpolation par durée.
-- Détection du silence de tête en échec ou pas encore terminée (track jamais joué avant) →
-  `leadInMs` traité comme non défini pour la session ; pas de count-in affiché tant que la
-  détection (fire-and-forget) n'a pas abouti.
+- Aucun onset net trouvé, ou track pas encore chargé (jamais joué avant) → `leadInMs` traité
+  comme non défini pour la session ; pas de count-in affiché tant que le chargement n'a pas
+  abouti.
 
 ## 8. Modèle de données
 
@@ -404,13 +415,16 @@ Autres divergences, mineures, par provider :
 Deux couches, jamais mélangées :
 
 **Tests unitaires** — rapides, zéro dépendance système (pas de Tauri, gtk, WebKit).
-Vivent dans les sous-crates sans dep Tauri : `chelou-manifest` et `chelou-providers` (ce
+Vivent dans les sous-crates sans dep Tauri : `chelou-manifest`, `chelou-providers` (ce
 dernier regroupe la logique de tous les providers cloud — pCloud aujourd'hui — en modules,
-aucun n'ayant de dépendance système qui justifierait un crate séparé).
+aucun n'ayant de dépendance système qui justifierait un crate séparé) et `chelou-audio-core`
+(décodage, rééchantillonnage, lecteur temps réel, détection du silence). L'E/S audio
+(`chelou-audio-engine`, qui dépend de `cpal` donc d'ALSA sur Linux) n'a pas de tests
+unitaires : toute sa logique testable est dans `chelou-audio-core`.
 Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :
 
 ```
-cargo test -p chelou-manifest -p chelou-providers
+cargo test -p chelou-manifest -p chelou-providers -p chelou-audio-core
 ```
 
 Un troisième sous-crate, `keyring-dpapi-store` (§5), partage la même propriété de zéro
@@ -438,9 +452,10 @@ Tout nouveau module avec de la logique non-triviale devrait idéalement rejoindr
 - Appariement tab ↔ backing track par similarité de nom.
 - Affichage du PDF dans la vue synchro.
 - Lecture du backing track via Web Audio API pure (`AudioContext` + `AudioBufferSourceNode` +
-  `decodeAudioData`, boucle `requestAnimationFrame`, `tickPosition`). Remplacé par une balise
-  `<audio>` en streaming (§2, §7) : l'argument initial de précision ne s'est pas vérifié
-  nécessaire (`audio.currentTime` suffit), et exiger un téléchargement complet avant lecture
-  contredit l'objectif §1 « streaming sans téléchargement ». `decodeAudioData` reste utilisé,
-  mais seulement pour l'analyse ponctuelle du silence de tête (§7), pas pour la lecture.
+  `decodeAudioData`, boucle `requestAnimationFrame`, `tickPosition`), puis via une balise
+  `<audio>` en streaming. Les deux sont remplacées par le moteur audio natif (§7) : la guitare
+  passée dans un plugin VST3 doit être mixée avec le backing track dans un même flux natif à
+  faible latence, ce qu'aucun chemin WebView ne permet. Le téléchargement complet avant lecture,
+  écarté à l'époque au nom de l'objectif §1, est désormais assumé : il garantit qu'un
+  ralentissement du provider ne devient jamais une coupure audio.
 - Mocks de Tauri dans les tests : on extrait la logique dans un sous-crate à la place (cf. §15).

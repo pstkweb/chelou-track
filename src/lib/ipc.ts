@@ -1,6 +1,7 @@
-// Typed wrappers around Tauri invoke() — the only way the frontend talks to pCloud.
-// Never call pCloud APIs directly from TS (cf. ARCHITECTURE.md §3 + §5).
-import { invoke } from '@tauri-apps/api/core';
+// Typed wrappers around Tauri invoke() — the only way the frontend talks to the Rust backend
+// (storage providers, native audio engine). Never call a provider API directly from TS
+// (cf. ARCHITECTURE.md §3 + §5).
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type { Method, Provider } from '@/types/model';
 
 // --- Auth ---
@@ -109,4 +110,73 @@ export async function updateBackingTrackLeadInOverride(
   leadInMs: number,
 ): Promise<void> {
   await invoke('update_backing_track_lead_in_override', { methodId, lessonId, fileId, leadInMs });
+}
+
+// --- Backing track (moteur audio natif, cf. ARCHITECTURE.md §7) ---
+
+export interface BackingInfo {
+  /** Track auquel se rapportent ces infos (un autre a pu être choisi entre-temps). */
+  fileId: string;
+  durationMs: number;
+  /** Fin du silence de tête, détectée côté Rust ; null si aucun onset net. */
+  silenceMs: number | null;
+  sampleRate: number;
+}
+
+export interface BackingStatus {
+  positionMs: number;
+  durationMs: number;
+  playing: boolean;
+  ended: boolean;
+  loaded: boolean;
+  /** Fréquence de la sortie : si elle change (autre périphérique), le track doit être rechargé. */
+  sampleRate: number;
+  error: string | null;
+}
+
+/** Télécharge, décode et charge entièrement le track dans le moteur (lecture à l'arrêt). */
+export async function backingLoad(provider: Provider, fileId: string): Promise<BackingInfo> {
+  return invoke('backing_load', { provider, fileId });
+}
+
+export async function backingUnload(): Promise<void> {
+  await invoke('backing_unload');
+}
+
+export async function backingPlay(): Promise<void> {
+  await invoke('backing_play');
+}
+
+export async function backingPause(): Promise<void> {
+  await invoke('backing_pause');
+}
+
+export async function backingSeek(ms: number): Promise<void> {
+  await invoke('backing_seek', { ms });
+}
+
+/** Gain linéaire 0-1. */
+export async function backingSetVolume(gain: number): Promise<void> {
+  await invoke('backing_set_volume', { gain });
+}
+
+/**
+ * Reçoit le statut du moteur (~60 Hz pendant la lecture, à chaque changement sinon). Un seul
+ * abonnement actif côté Rust : un nouvel appel remplace le précédent. La fonction rendue rend
+ * l'abonnement inerte côté WebView.
+ */
+export async function subscribeBackingStatus(
+  onStatus: (status: BackingStatus) => void,
+): Promise<() => void> {
+  let active = true;
+  const channel = new Channel<BackingStatus>();
+  channel.onmessage = (status) => {
+    if (active) {
+      onStatus(status);
+    }
+  };
+  await invoke('backing_status', { channel });
+  return () => {
+    active = false;
+  };
 }

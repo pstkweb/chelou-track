@@ -19,7 +19,7 @@ npm run dev
 # Build production
 npm run build
 
-# CI TypeScript : biome + tsc (lancé par GitHub Actions)
+# CI TypeScript : biome + tsc + vitest (lancé par GitHub Actions)
 npm run ci
 
 # Vérification rapide Rust (pas de link — beaucoup plus rapide que build)
@@ -29,7 +29,7 @@ cd src-tauri && cargo check
 cd src-tauri && cargo clippy
 
 # Tests unitaires Rust (sous-crates sans dépendances système Tauri — cf. §15 ARCHITECTURE.md)
-cd src-tauri && cargo test -p chelou-manifest -p chelou-providers
+cd src-tauri && cargo test -p chelou-manifest -p chelou-providers -p chelou-audio-core
 
 # Vérification TypeScript sans emit
 npx tsc --noEmit
@@ -40,8 +40,8 @@ npx tsc --noEmit
 - **Tauri v2** (Rust backend + WebView2 sur Windows), frontend TypeScript + Vite.
 - **AlphaTab** (`@coderline/alphatab@1.8.4`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
-- **Balise `<audio>`** pointée sur `stream://audio/{id}` pour la lecture des backing tracks (streaming progressif, `playbackRate` natif). **Web Audio API** (`AudioContext` / `decodeAudioData`) réservée à un usage ponctuel : l'analyse du silence de tête d'un track, pas la lecture.
-- **reqwest** côté Rust pour les appels pCloud + streaming Range.
+- **Moteur audio natif Rust** (`cpal` + `symphonia` + `rubato`, sous-crates `chelou-audio-core`/`chelou-audio-engine`) pour la lecture des backing tracks : téléchargés et décodés en entier avant lecture, lus à vitesse 1 sur la sortie par défaut du système, détection du silence de tête au décodage. Le métronome reste un `AudioContext` côté WebView (en attendant son passage dans le moteur).
+- **reqwest** côté Rust pour les appels aux providers + streaming Range.
 - **keyring-core** pour le token du provider connecté (store par OS — `keyring-dpapi-store` maison sur Windows, Keychain/Secret Service natifs ailleurs).
 
 ## Architecture
@@ -53,17 +53,19 @@ TS (WebView)          Rust (Tauri backend)                 Provider cloud (pClou
 ──────────────────    ─────────────────────────────        ────────────────────────────────────
 invoke("cmd")    ──►  commands/mod.rs                 ──►  eapi.pcloud.com
 fetch("stream://") ►  stream/mod.rs (protocol)         ──►  bytes (Range)
+invoke("backing_*") ► audio/mod.rs                    ──►  fichier entier (resolve_media)
+Channel ◄──────────── backing_status (~60 Hz)              crates/audio-engine (sortie cpal)
                       auth/mod.rs (keyring-core, store par OS)
                       providers/mod.rs (registre ProviderClient/ProviderAuthClient)
                       crates/providers (trait StorageProvider + adapters par provider)
                       manifest/mod.rs (JSON local)
 ```
 
-Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite par `invoke()` ou le protocole custom `stream://`. Cette garde s'applique uniformément quel que soit le provider connecté — voir `docs/ARCHITECTURE.md` §3.
+Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite par `invoke()`, le protocole custom `stream://` ou un `Channel` Tauri (statut du moteur audio). Cette garde s'applique uniformément quel que soit le provider connecté — voir `docs/ARCHITECTURE.md` §3.
 
 ### Modules Rust
 
-`src-tauri/` est un workspace Cargo avec trois sous-crates (`chelou-manifest`, `chelou-providers`, `keyring-dpapi-store`) en plus du crate principal :
+`src-tauri/` est un workspace Cargo avec cinq sous-crates (`chelou-manifest`, `chelou-providers`, `keyring-dpapi-store`, `chelou-audio-core`, `chelou-audio-engine`) en plus du crate principal :
 
 **`src-tauri/` (crate principal — dépend de Tauri)**
 
@@ -74,8 +76,9 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/auth/` | `AuthStore` : credentials d'une connexion active (n'importe quel provider) en mémoire + persistance via keyring-core (store par OS) |
 | `src/providers/mod.rs` | Registre : enum `ProviderClient`/`ProviderAuthClient` (dispatch par `match`, un bras par provider) + `make_client`/`make_auth` |
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
-| `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>`/`<audio>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
+| `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
+| `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek/set_volume) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) — cf. ARCHITECTURE.md §7 |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
 
@@ -95,7 +98,21 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/dropbox.rs`, `src/gdrive.rs` | Adapters Dropbox / Google Drive (Drive masqué dans l'UI, cf. `ProviderId::GoogleDrive`) |
 | `src/local.rs` | Provider local (disque ou montage réseau) : `LocalClient` enraciné sur le dossier choisi par `connect_local` (chemin stocké dans `access_token`), ids = base64url du chemin relatif, `open_range`/`read_range` pour `DownloadTarget::File` — cf. ARCHITECTURE.md §14 |
 
-Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage à trois sous-crates permet de tester le modèle, la persistance et la logique provider — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit).
+Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce même sous-crate plutôt qu'un crate séparé chacun — aucun n'a de dépendance système, donc aucune perte de testabilité (cf. §15 ARCHITECTURE.md) à les regrouper. Ce découpage en sous-crates permet de tester le modèle, la persistance, la logique provider et la logique audio (`chelou-audio-core`) — et, sur le même principe, le store d'identifiants (`keyring-dpapi-store`, lui aussi sans dépendance Tauri) — sans compiler Tauri ni les dépendances système (GTK, WebKit, ALSA).
+
+**`src-tauri/crates/audio-core/`** (sous-crate `chelou-audio-core` — `symphonia`, `rubato`, `rtrb` : zéro dépendance système, testé en CI)
+
+| Fichier | Rôle |
+|---|---|
+| `src/decode.rs` | `decode_stereo` (wav/mp3/flac → stéréo f32 entrelacé, paquets corrompus sautés) + `resample` (fréquence de la sortie, durée conservée) |
+| `src/player.rs` | `BackingPlayer` (côté callback audio : aucune allocation/verrou/libération) + `PlayerControl` (ordres par file lock-free, statut par atomiques, tracks remplacés libérés hors thread audio, `load` refuse un track rééchantillonné pour une autre fréquence) + `LoadGeneration` (un chargement périmé ne remplace pas le track en place) |
+| `src/silence.rs` | `scan_leading_silence` : fin du silence de tête (pic par fenêtre, plancher au percentile bas) |
+
+**`src-tauri/crates/audio-engine/`** (sous-crate `chelou-audio-engine` — `cpal`, donc ALSA sur Linux : hors de la commande de test canonique, ses tests ne tournent qu'en local via `cargo test -p chelou-audio-engine`)
+
+| Fichier | Rôle |
+|---|---|
+| `src/lib.rs` | `start()` : ouvre la sortie par défaut dans un thread dédié propriétaire du flux, joue le `BackingPlayer`, absorbe l'à-coup d'ouverture, rouvre la sortie par défaut si elle disparaît (`requires_rebuild` : les accrocs dont le flux se remet seul — xrun, changement de route — ne le reconstruisent pas). `examples/play.rs` pour une vérification manuelle |
 
 **`src-tauri/crates/keyring-dpapi-store/`** (sous-crate `keyring-dpapi-store` — dépendances : `keyring-core` + `windows-dpapi`, zéro dépendance Tauri, Windows uniquement)
 
@@ -108,15 +125,17 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | Fichier | Rôle |
 |---|---|
 | `types/model.ts` | Interfaces du modèle (§8 ARCHITECTURE.md) — source de vérité TS |
-| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider` |
-| `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://audio/{provider}/{id}`, etc. (serveur loopback + jeton sur Linux, `initMediaToken` appelé avant le premier rendu) ; `fetchStream` = `fetch` qui rejette sur statut non-2xx |
+| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider`, commandes `backing_*` du moteur audio et `subscribeBackingStatus` (`Channel`) |
+| `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://tab/…`, `stream://doc/…` (serveur loopback + jeton sur Linux, `initMediaToken` appelé avant le premier rendu) ; `fetchStream` = `fetch` qui rejette sur statut non-2xx |
 | `lib/providers.ts` | Registre `PROVIDERS` (label, icône par `Provider`) — source unique pour l'UI (ConnectScreen, FolderPicker, TitleBar) |
-| `lib/silence-detection.ts` | Détection du silence de tête d'un backing track (`decodeAudioData` + analyse d'amplitude) |
+| `lib/serial-queue.ts` | `createSerialQueue` : file d'exécution séquentielle (testée vitest) — ordonne chargements et déchargements du moteur entre toutes les vues |
+| `lib/lead-in.ts` | `leadInFromSilence` : lead-in à partir du silence détecté par le moteur, refusé si les infos se rapportent à un autre track (testé vitest) |
 | `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |
-| `components/templates/TabScreen.tsx` | Vue synchro : `<audio>` + AlphaTab (boucle de synchro, voir ci-dessous) |
-| `hooks/useAlphaTabPlayer.ts` | Instancie AlphaTab, branche `<audio>` comme `IExternalMediaHandler` |
-| `hooks/useBackingTrackPlayback.ts` | Boucle de synchro : lit `audio.currentTime`, pousse la position à AlphaTab |
-| `hooks/useLeadInDetection.ts` | Déclenche la détection de silence de tête, persiste `leadInMsOverride` |
+| `components/templates/TabScreen.tsx` | Vue synchro : moteur natif + AlphaTab (boucle de synchro, voir ci-dessous) |
+| `hooks/useBackingEngine.ts` | Backing track du moteur natif : chargement et déchargement (en quittant la vue) passés par une file partagée par toutes les vues, abonnement au statut, rechargement si la fréquence de sortie change |
+| `hooks/useAlphaTabPlayer.ts` | Instancie AlphaTab, branche le moteur comme `IExternalMediaHandler` |
+| `hooks/useBackingTrackPlayback.ts` | Boucle de synchro : reçoit le statut du moteur, pousse la position à AlphaTab |
+| `hooks/useLeadInDetection.ts` | Calcule le lead-in à partir du silence détecté côté Rust, persiste `leadInMsOverride` |
 | `components/templates/MethodScreen.tsx`, `LibraryScreen.tsx` | Navigation méthode→leçons, tri par `.order` |
 | `components/templates/DocumentsScreen.tsx` | PDF.js + `<img>` pour les images |
 
@@ -137,11 +156,12 @@ dès qu'un composant a un `className` conditionnel ou surchargeable depuis l'ext
 ### Boucle de synchronisation (TabScreen)
 
 Modèle : **audio = horloge maître, AlphaTab = esclave**. Ne jamais faire « jouer » AlphaTab.
-`audio.currentTime` (balise `<audio>`, pas `AudioContext`) est l'unique source de vérité, relue
-sur `timeupdate`/`seeked` et, pendant la lecture, via un `setInterval` de 50 ms (`useBackingTrackPlayback.ts`) :
+La position de lecture du moteur audio natif est l'unique source de vérité, poussée par
+`backing_status` toutes les 16 ms pendant la lecture et à chaque changement sinon
+(`useBackingTrackPlayback.onStatus`) :
 
 ```
-audioMs = audio.currentTime * 1000
+audioMs = status.positionMs
 scale   = trackBpm / notatedBpm            // = 1 si le backing track est au tempo noté du .gp
 output.updatePosition((audioMs - leadInMs) * scale)
 ```
@@ -152,7 +172,7 @@ du backing track comme s'il s'était écoulé au tempo noté. Reste correct tant
 constant sur tout le fichier (hypothèse posée dans ARCHITECTURE.md §7).
 
 `leadInMs = silenceMs + defaultCountInBars × beatsPerBar × 60000 / trackBpm` — `silenceMs` détecté
-une fois par track (`lib/silence-detection.ts`) et mis en cache dans `leadInMsOverride` ;
+par `backing_load` au décodage (`chelou_audio_core::silence`) et mis en cache dans `leadInMsOverride` ;
 `beatsPerBar` lu depuis `api.score.masterBars[0].timeSignatureNumerator` après `scoreLoaded`.
 Détail complet : ARCHITECTURE.md §7.
 
@@ -162,7 +182,8 @@ Deux couches distinctes (cf. `docs/ARCHITECTURE.md` §15) :
 
 | Couche | Périmètre | Vitesse | Commande |
 |---|---|---|---|
-| **Unitaires** | Sous-crates `chelou-manifest`, `chelou-providers` — logique pure, zéro dep Tauri | Rapide, CI ubuntu | `cargo test -p chelou-manifest -p chelou-providers` |
+| **Unitaires** | Sous-crates `chelou-manifest`, `chelou-providers`, `chelou-audio-core` — logique pure, zéro dep Tauri | Rapide, CI ubuntu | `cargo test -p chelou-manifest -p chelou-providers -p chelou-audio-core` |
+| **Unitaires TS** | Logique pure du frontend (`src/lib/*.test.ts`) | Rapide | `npx vitest run` (inclus dans `npm run ci`) |
 | **Intégration** | Comportement complet (Tauri + WebView2 + pCloud) | Lent, lié à la plateforme | *(aucun pour l'instant)* |
 
 **Règle :** toute logique testable unitairement vit dans un sous-crate sans dep Tauri. Si une
@@ -172,7 +193,7 @@ fonction nécessite Tauri pour compiler, la refacto vers un sous-crate est la r�
 
 1. **Le WebView ne voit jamais le token ni une URL brute du provider de stockage.** Tout transite par Rust via `stream://` ou `invoke()` — règle uniforme quel que soit le provider connecté, pas seulement une conséquence de la contrainte pCloud ci-dessous (cf. `docs/ARCHITECTURE.md` §3). Ça vaut aussi pour les **messages d'erreur** : reqwest met l'URL (lien pré-signé) dans son `Display` — passer par `redact_urls` / `public_err` avant de renvoyer une erreur au WebView.
 2. **Endpoint pCloud EU : `eapi.pcloud.com`** (jamais l'endpoint US `api.pcloud.com`). Spécifique à pCloud — ne généralise pas aux autres providers.
-3. **L'audio est l'horloge maître ; AlphaTab est piloté.** Voir boucle ci-dessus.
+3. **Le moteur audio natif est l'horloge maître ; AlphaTab est piloté.** Voir boucle ci-dessus.
 4. **AlphaTab est l'unique moteur de tablature.** Jamais de PDF dans la vue synchro.
 5. **Ne pas appairer tab ↔ backing track par le nom.** Sur-rattacher en pool (cf. `docs/ARCHITECTURE.md` §6).
 

@@ -71,10 +71,13 @@ pub struct AppState {
     /// Per-session secret the Linux loopback media server requires on every request (cf.
     /// media_server.rs). `None` on the other platforms, which don't run that server.
     pub media_token: Option<String>,
+    /// Moteur audio natif (backing track) ; `None` si aucune sortie n'a pu être ouverte au
+    /// démarrage — les commandes `backing_*` renvoient alors une erreur explicite.
+    pub audio: Option<chelou_audio_engine::Engine>,
 }
 
 /// Error message safe to hand to the WebView: provider URLs (pre-signed links) redacted.
-fn public_err(e: impl std::fmt::Display) -> String {
+pub(crate) fn public_err(e: impl std::fmt::Display) -> String {
     chelou_providers::redact_urls(&format!("{e:#}"))
 }
 

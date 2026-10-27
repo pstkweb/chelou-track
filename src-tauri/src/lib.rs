@@ -1,3 +1,4 @@
+mod audio;
 mod auth;
 mod commands;
 mod manifest;
@@ -74,6 +75,9 @@ pub fn run() {
                 url_cache: Mutex::new(HashMap::new()),
                 client_cache: Mutex::new(None),
                 media_token: cfg!(target_os = "linux").then(chelou_providers::random_token),
+                audio: chelou_audio_engine::start()
+                    .inspect_err(|e| eprintln!("audio : sortie indisponible au démarrage : {e:#}"))
+                    .ok(),
             });
 
             #[cfg(target_os = "linux")]
@@ -96,6 +100,13 @@ pub fn run() {
             commands::mark_lesson_unseen,
             commands::update_lesson_resume,
             commands::update_backing_track_lead_in_override,
+            audio::backing_load,
+            audio::backing_unload,
+            audio::backing_play,
+            audio::backing_pause,
+            audio::backing_seek,
+            audio::backing_set_volume,
+            audio::backing_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

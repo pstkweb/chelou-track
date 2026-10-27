@@ -2,6 +2,7 @@ import { AlphaTabApi, NotationElement, type synth } from '@coderline/alphatab';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { docUrl } from '@/lib/stream';
 import type { Provider } from '@/types/model';
+import type { BackingEngine } from './useBackingEngine';
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -21,7 +22,7 @@ function alphaTabResources() {
 
 export default function useAlphaTabPlayer(
   tabElmt: RefObject<HTMLDivElement | null>,
-  audioElmt: RefObject<HTMLAudioElement | null>,
+  engine: BackingEngine,
   tabFile: string | undefined,
   provider: Provider,
 ) {
@@ -37,11 +38,14 @@ export default function useAlphaTabPlayer(
   // seekTo() ci-dessous pour convertir un temps "noté" (domaine AlphaTab) en temps audio réel.
   const trackBpmRef = useRef<number | undefined>(undefined);
   const leadInMsRef = useRef<number | undefined>(undefined);
+  // Le handler externe est branché une seule fois par tablature : il lit le moteur à jour
+  // (durée du track chargé) via cette ref plutôt que via la closure du premier rendu.
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
+  const volumeRef = useRef(1);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs stables, lues une fois au montage
   useEffect(() => {
-    const audio = audioElmt.current;
-
     if (!tabFile || !tabElmt.current) {
       return;
     }
@@ -98,60 +102,57 @@ export default function useAlphaTabPlayer(
       rejectScoreLoaded(error);
     });
 
-    if (audio) {
-      // le handler externe ne peut être branché qu'une fois le player interne prêt
-      // (instance.player reste null tant que _player.instance n'est pas initialisé)
-      instance.playerReady.on(() => {
-        const player = instance.player;
+    // le handler externe ne peut être branché qu'une fois le player interne prêt
+    // (instance.player reste null tant que _player.instance n'est pas initialisé)
+    instance.playerReady.on(() => {
+      const player = instance.player;
 
-        if (!player) {
-          return;
-        }
+      if (!player) {
+        return;
+      }
 
-        (player.output as unknown as synth.IExternalMediaSynthOutput).handler = {
-          get backingTrackDuration() {
-            const duration = audio.duration;
+      (player.output as unknown as synth.IExternalMediaSynthOutput).handler = {
+        get backingTrackDuration() {
+          return engineRef.current.info?.durationMs ?? 0;
+        },
+        // Le backing track est lu à vitesse 1 (c'est lui qui donne le tempo) : seul le curseur
+        // est mis à l'échelle, cf. useBackingTrackPlayback.
+        get playbackRate() {
+          return 1;
+        },
+        set playbackRate(_value) {},
+        get masterVolume() {
+          return volumeRef.current;
+        },
+        set masterVolume(value) {
+          volumeRef.current = value;
+          engineRef.current.setVolume(value);
+        },
+        seekTo(time) {
+          const trackBpm = trackBpmRef.current;
+          const leadInMs = leadInMsRef.current;
 
-            return Number.isFinite(duration) ? duration * 1000 : 0;
-          },
-          get playbackRate() {
-            return audio.playbackRate ?? 1;
-          },
-          set playbackRate(value) {
-            audio.playbackRate = value;
-          },
-          get masterVolume() {
-            return audio.volume ?? 100;
-          },
-          set masterVolume(value) {
-            audio.volume = value;
-          },
-          seekTo(time) {
-            const trackBpm = trackBpmRef.current;
-            const leadInMs = leadInMsRef.current;
+          if (time <= 0 || trackBpm === undefined || leadInMs === undefined) {
+            // Seek au tout début (ou lead-in pas encore connu) : redémarre depuis le
+            // vrai début du fichier (silence + count-in inclus), comme une première
+            // lecture — pas juste le premier temps noté (qui correspondrait à leadInMs).
+            engineRef.current.seek(0);
+            return;
+          }
 
-            if (time <= 0 || trackBpm === undefined || leadInMs === undefined) {
-              // Seek au tout début (ou lead-in pas encore connu) : redémarre depuis le
-              // vrai début du fichier (silence + count-in inclus), comme une première
-              // lecture — pas juste le premier temps noté (qui correspondrait à leadInMs).
-              audio.currentTime = 0;
-              return;
-            }
-
-            // Inverse de la mise à l'échelle faite dans TabScreen.onTimeUpdate :
-            // notatedMs = (audioMs - leadInMs) * (trackBpm / notatedBpm)
-            const scale = trackBpm / notatedBpmRef.current;
-            audio.currentTime = (time / scale + leadInMs) / 1000;
-          },
-          play() {
-            audio.play();
-          },
-          pause() {
-            audio.pause();
-          },
-        } as synth.IExternalMediaHandler;
-      });
-    }
+          // Inverse de la mise à l'échelle faite dans useBackingTrackPlayback.onStatus :
+          // notatedMs = (audioMs - leadInMs) * (trackBpm / notatedBpm)
+          const scale = trackBpm / notatedBpmRef.current;
+          engineRef.current.seek(time / scale + leadInMs);
+        },
+        play() {
+          engineRef.current.play();
+        },
+        pause() {
+          engineRef.current.pause();
+        },
+      } as synth.IExternalMediaHandler;
+    });
 
     // suit les changements de thème (attribut data-mode / classe .dark sur <html>)
     const themeObserver = new MutationObserver(() => {
