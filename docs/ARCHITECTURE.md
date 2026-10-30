@@ -27,8 +27,11 @@ joué (§7) — un ralentissement du provider ne doit jamais devenir une coupure
   téléchargé puis décodé en entier (`symphonia`) et rééchantillonné (`rubato`) à la fréquence de
   la sortie. Le track est lu à vitesse 1 : c'est lui qui donne le tempo. Une fois une carte son
   choisie, le moteur l'ouvre en **duplex** (ASIO ou WASAPI sur Windows, CoreAudio, ALSA) et
-  mixe la guitare en son direct avec le backing track. Le métronome reste pour l'instant un
-  `AudioContext` côté WebView, déclenché par la position du moteur.
+  mixe la guitare — passée dans **un plugin d'ampli VST3** choisi par l'utilisateur, sinon en
+  son direct — avec le backing track. Le métronome reste pour l'instant un `AudioContext` côté
+  WebView, déclenché par la position du moteur.
+- **Hôte VST3 : `chelou-vst3-host`** — bindings `vst3` (+ classes COM `com-scrape-types`) et
+  `libloading`, sans SDK C++ ni CMake (voie A du spike de dérisquage, §7).
 
 Electron a été explicitement écarté.
 
@@ -131,6 +134,9 @@ Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
   tête, statut de lecture poussé au WebView ; carte son en duplex (son direct de la guitare),
   inventaire des cartes, réglages audio persistés (§9), statut de la carte et crêtes des
   vumètres poussés au WebView.
+- Hôte VST3 (§7) : scan des plugins, plugin d'ampli de la voie guitare, sa fenêtre d'interface
+  native. Le WebView désigne un plugin par son identifiant dans le dernier scan, jamais par un
+  chemin.
 
 **TS (frontend) :**
 - Navigation catalogue (méthode → leçons dans l'ordre).
@@ -213,6 +219,32 @@ en « Pilote audio déjà utilisé par une autre application ») ou carte perdue
 seule sur la sortie par défaut avec l'erreur dans le statut, la backing track continue ; pas de
 réessai automatique de la carte (« Redémarrer » dans les réglages). Le statut de la carte
 (`audio_status`, ~30 Hz, permanent) alimente le contrôle guitare de la barre de titre.
+
+**Plugin d'ampli VST3 (un seul slot sur la voie guitare).** VST3 uniquement ; aucun plugin =
+son direct. Le plugin est **chargé, réglé et déchargé sur le thread principal** (les plugins JUCE
+— Neural DSP, Blob… — rattachent leur thread de messages au premier thread qui les appelle, et
+leur interface est pompée par la boucle d'évènements de Tauri) ; seule sa partie temps réel
+(trait `GuitarFx`) est installée dans la voie guitare (`Engine::install_fx`), où elle remplace le
+son direct : entrée mono (repli stéréo si le plugin refuse le mono) → plugin → stéréo × gain.
+Ordre imposé au retrait (déchargement, autre plugin, sortie de l'app) : partie temps réel
+retirée de la voie, interface fermée, puis plugin libéré — sa DLL ne disparaît jamais sous le
+callback. Le plugin est préparé à la fréquence réelle du flux et pour `MAX_BLOCK` (4096) frames,
+puis **pré-chauffé** (quelques `process` sur du silence : le premier `process` d'Archetype prend
+~10 ms) avant d'être branché. Flux rouverts à une autre fréquence : la voie retire l'effet
+(flux fermés, il n'est jamais joué à la mauvaise fréquence) et l'app le recharge à la nouvelle,
+avec ses réglages ; un plugin préparé pendant qu'une autre réouverture changeait la fréquence
+est refusé par la voie et rechargé. Un chargement raté laisse l'ancien plugin en place ; un
+plugin qui a fait planter l'app en se rechargeant au démarrage n'est pas rechargé au lancement
+suivant (marqueur `pluginLoading`) (état composant + contrôleur, gardé en mémoire). Latence affichée = 2 ×
+buffer + latence du plugin. **Scan** à la main uniquement : dossiers standard de l'OS + dossiers
+ajoutés ; `Contents/Resources/moduleinfo.json` (JSON5) lu sans charger le binaire, sinon le
+bundle est chargé dans un **processus enfant** (le binaire de l'app relancé avec
+`--vst3-probe <bundle>`, tué au bout de 15 s) : un plugin qui plante pendant le scan ne touche
+pas l'app. Seules les classes `Audio Module Class` sont listées, instruments purs exclus.
+Plugin mémorisé introuvable au démarrage : son direct et bandeau, le choix reste mémorisé.
+Plateformes : Windows complet ; Linux (`ModuleEntry`) et macOS (`bundleEntry`, **non testé**)
+chargent et traitent le son, sans interface de plugin pour l'instant. Un plugin qui plante fait
+tomber l'app (hébergement dans le processus, accepté).
 
 Caractéristiques des backing tracks (confirmées) : **tempo constant** par fichier (plusieurs
 versions à des BPM différents pour l'apprentissage), **count-in quasi systématique d'une mesure**,
@@ -335,9 +367,11 @@ interface FileRef { fileId: string; name: string; }
   d'avant le versioning). Un fichier illisible ou d'une version plus récente est ignoré au
   chargement (log stderr) **sans être modifié**, pour qu'une version plus récente de l'app
   puisse toujours le lire. Incrémenter `SCHEMA_VERSION` à tout changement cassant du format.
-- **Réglages audio** (`audio-settings.json` dans l'app dir, `chelou_audio_core::settings`) :
+- **Réglages audio** (`audio/settings.json` dans l'app dir — pas à sa racine, où chaque `.json` est
+  un manifeste de méthode ; un ancien `audio-settings.json` y est déplacé —, `chelou_audio_core::settings`) :
   carte choisie (pilote, entrée/sortie, canal, fréquence, buffer), carte arrêtée ou non, volume
-  et mute de la guitare. Même politique que le manifeste : écriture atomique, `schemaVersion`,
+  et mute de la guitare, plugin d'ampli choisi, dossiers VST3 ajoutés, dernier résultat de scan
+  (champs ajoutés sans changer `schemaVersion` : absents → valeurs par défaut). Même politique que le manifeste : écriture atomique, `schemaVersion`,
   fichier absent, illisible ou plus récent → réglages par défaut (sortie seule) sans le modifier.
 
 ## 10. Section documents (séparée de la synchro)
@@ -446,7 +480,10 @@ aucun n'ayant de dépendance système qui justifierait un crate séparé) et `ch
 (décodage, rééchantillonnage, lecteur temps réel, voie guitare, réglages audio, détection du
 silence). L'E/S audio
 (`chelou-audio-engine`, qui dépend de `cpal` donc d'ALSA sur Linux) n'a pas de tests
-unitaires : toute sa logique testable est dans `chelou-audio-core`.
+unitaires : toute sa logique testable est dans `chelou-audio-core`, y compris celle du scan VST3
+(`plugins` : `moduleinfo.json`, filtre, bundles). L'hôte VST3 (`chelou-vst3-host`) ne se teste
+pas sans vrais plugins ; seul son scan en processus enfant a des tests (`cargo test -p
+chelou-vst3-host`, en local : ses exemples dépendent du moteur, donc d'ALSA).
 Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :
 
 ```

@@ -196,6 +196,21 @@ export interface DuplexConfig {
   buffer: number;
 }
 
+/** Plugin VST3 trouvé par le scan ; désigné auprès de Rust par son `id`, jamais par son chemin. */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  vendor: string;
+  path: string;
+  /** Nom de fichier du bundle. */
+  file: string;
+}
+
+export interface PluginFolders {
+  standard: string[];
+  custom: string[];
+}
+
 export interface AudioSettings {
   schemaVersion: number;
   /** null : jamais configuré, sortie seule. */
@@ -205,6 +220,14 @@ export interface AudioSettings {
   /** 0-100, 80 = 0 dB. */
   guitarFader: number;
   guitarMuted: boolean;
+  /** Plugin d'ampli choisi (gardé même s'il est introuvable au démarrage). */
+  plugin: PluginInfo | null;
+  /** Dossiers VST3 ajoutés par l'utilisateur. */
+  vst3Folders: string[];
+  /** Dernier résultat de scan ; null : jamais scanné. */
+  scan: PluginInfo[] | null;
+  /** Rechargement du plugin mémorisé en cours au démarrage (garde contre un plantage en boucle). */
+  pluginLoading: boolean;
 }
 
 export interface DeviceInfo {
@@ -235,6 +258,10 @@ export interface AudioStatus {
   guitarFader: number;
   guitarMuted: boolean;
   deviceName: string | null;
+  /** Plugin d'ampli chargé ; null : son direct. */
+  plugin: PluginInfo | null;
+  /** Nom du plugin mémorisé introuvable au démarrage. */
+  pluginMissing: string | null;
 }
 
 /** Cartes de chaque pilote (lent en ASIO : chaque pilote est chargé tour à tour). */
@@ -266,6 +293,39 @@ export async function guitarSetMuted(muted: boolean): Promise<void> {
 
 export async function audioResetXruns(): Promise<void> {
   await invoke('audio_reset_xruns');
+}
+
+export async function pluginFolders(): Promise<PluginFolders> {
+  return invoke('plugin_folders');
+}
+
+/** Boîte de dialogue native ; false si annulée ou dossier déjà présent. */
+export async function pluginAddFolder(): Promise<boolean> {
+  return invoke('plugin_add_folder');
+}
+
+export async function pluginRemoveFolder(path: string): Promise<void> {
+  await invoke('plugin_remove_folder', { path });
+}
+
+/** Scan des dossiers VST3 (quelques secondes : les bundles sans métadonnées sont chargés). */
+export async function pluginScan(): Promise<PluginInfo[]> {
+  return invoke('plugin_scan');
+}
+
+/** Charge un plugin du dernier scan, par son identifiant. */
+export async function pluginLoad(id: string): Promise<PluginInfo> {
+  return invoke('plugin_load', { id });
+}
+
+/** Retire le plugin (son direct) ; masque aussi le bandeau « introuvable ». */
+export async function pluginUnload(): Promise<void> {
+  await invoke('plugin_unload');
+}
+
+/** Ouvre l'interface native du plugin, ou la ramène au premier plan. */
+export async function pluginOpenEditor(): Promise<void> {
+  await invoke('plugin_open_editor');
 }
 
 /** Statut de la carte toutes les 33 ms, en permanence. Même mécanique que subscribeBackingStatus. */

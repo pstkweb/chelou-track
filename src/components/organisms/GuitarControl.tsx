@@ -1,5 +1,6 @@
 import {
   ChevronDown,
+  ExternalLink,
   Guitar,
   Plug,
   Power,
@@ -9,6 +10,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Button from '@/components/atoms/Button';
 import LevelMeter from '@/components/molecules/LevelMeter';
 import { useAudioEngine } from '@/contexts/AudioEngineContext';
 import cn from '@/lib/cn';
@@ -34,6 +36,45 @@ const STATE_BUTTON = {
     title: 'Erreur de la carte son',
   },
 } as const;
+
+/** Bloc plugin du popover : plugin chargé et son interface, sinon accès au choix d'un plugin. */
+function PopoverPlugin({ onDone }: { onDone: () => void }) {
+  const { status, openSettings, openPluginEditor } = useAudioEngine();
+  const plugin = status?.plugin ?? null;
+  const missing = status?.pluginMissing;
+  let sub = "Aucun plugin d'ampli chargé";
+  if (plugin) {
+    sub = `${plugin.vendor} · VST3`;
+  } else if (missing) {
+    sub = `${missing} introuvable`;
+  }
+
+  return (
+    <>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="type-ic tab size-8">
+          <Plug size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-bold text-[13.5px]">
+            {plugin ? plugin.name : 'Son direct'}
+          </div>
+          <div className="truncate text-[11.5px] text-fg2">{sub}</div>
+        </div>
+      </div>
+      <Button
+        className="mb-4 h-8.5 w-full text-[13px]"
+        onClick={() => {
+          (plugin ? openPluginEditor : openSettings)();
+          onDone();
+        }}
+      >
+        {plugin ? <ExternalLink size={15} /> : <Plug size={15} />}
+        {plugin ? "Ouvrir l'interface du plugin" : 'Choisir un plugin'}
+      </Button>
+    </>
+  );
+}
 
 /** Barre de titre : mute + vumètre d'entrée guitare, et accès rapide au volume et aux réglages. */
 export default function GuitarControl() {
@@ -92,6 +133,7 @@ export default function GuitarControl() {
   }
 
   const muted = settings.guitarMuted;
+
   const toggleMute = () => setMuted(!muted);
   const muteTitle = muted ? 'Réactiver la guitare' : 'Couper la guitare';
 
@@ -143,15 +185,7 @@ export default function GuitarControl() {
             </span>
           </div>
 
-          <div className="mb-4 flex items-center gap-2.5">
-            <span className="type-ic tab size-8">
-              <Plug size={16} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-bold text-[13.5px]">Son direct</div>
-              <div className="text-[11.5px] text-fg2">Aucun plugin d'ampli chargé</div>
-            </div>
-          </div>
+          <PopoverPlugin onDone={() => setOpen(false)} />
 
           <div className="mb-1.5 flex items-center justify-between">
             <span className="font-semibold text-fg2 text-xs">Volume guitare</span>

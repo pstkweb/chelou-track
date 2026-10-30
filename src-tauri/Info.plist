@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Fusionné par Tauri dans l'Info.plist de l'app : sans cette clé, macOS refuse l'accès à
+       l'entrée de la carte son (guitare). -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Chelou Track a besoin de l'entrée de ta carte son pour faire entendre ta guitare.</string>
+</dict>
+</plist>

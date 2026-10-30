@@ -1,7 +1,7 @@
 // Commandes du moteur audio natif (ARCHITECTURE.md §7).
 // - Backing track : le track est téléchargé et décodé entièrement avant lecture, puis le WebView
 //   suit la position via un `Channel` (horloge maître = moteur, AlphaTab piloté).
-// - Carte son et son direct : réglages persistés (`audio-settings.json`), inventaire des cartes,
+// - Carte son et son direct : réglages persistés (`audio/settings.json`), inventaire des cartes,
 //   statut permanent pour la barre de titre et ses vumètres.
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use chelou_audio_core::decode::{decode_stereo, resample};
 use chelou_audio_core::player::LoadGeneration;
+use chelou_audio_core::plugins::PluginInfo;
 use chelou_audio_core::settings::{latency_ms, save_settings, AudioSettings, DuplexConfig};
 use chelou_audio_core::silence::scan_leading_silence;
 use chelou_audio_engine::{Engine, EngineState, HostDevices};
@@ -237,8 +238,9 @@ pub fn start_engine(settings: &AudioSettings) -> Option<Engine> {
     Some(engine)
 }
 
-/// Ouvre la carte des réglages persistés en arrière-plan : un pilote qui ne répond pas
-/// (matériel USB débranché) ne doit pas empêcher la fenêtre de s'afficher.
+/// Ouvre la carte des réglages persistés en arrière-plan (un pilote qui ne répond pas — matériel
+/// USB débranché — ne doit pas empêcher la fenêtre de s'afficher), puis recharge le plugin
+/// d'ampli mémorisé, à la fréquence de la carte ouverte.
 pub fn open_saved_card(app: &AppHandle) {
     let settings = app
         .state::<AppState>()
@@ -246,13 +248,17 @@ pub fn open_saved_card(app: &AppHandle) {
         .lock()
         .unwrap()
         .clone();
-    if wanted(&settings).is_some() {
-        tauri::async_runtime::spawn(apply_settings(app.clone(), settings));
-    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if wanted(&settings).is_some() {
+            let _ = apply_settings(app.clone(), settings).await;
+        }
+        crate::plugin::restore_saved(app).await;
+    });
 }
 
 /// Modifie les réglages puis les persiste ; rend la copie à jour.
-fn update_settings(
+pub(crate) fn update_settings(
     state: &AppState,
     change: impl FnOnce(&mut AudioSettings),
 ) -> Result<AudioSettings, String> {
@@ -263,18 +269,24 @@ fn update_settings(
 }
 
 /// Rouvre la carte (thread bloquant : `Engine::apply` attend le thread moteur). Un échec
-/// d'ouverture n'est pas une erreur de commande : il est porté par `audio_status`.
+/// d'ouverture n'est pas une erreur de commande : il est porté par `audio_status`. Flux rouverts
+/// à une autre fréquence : le plugin d'ampli, retiré de la voie, est rechargé.
 async fn apply_settings(app: AppHandle, settings: AudioSettings) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        if let Some(engine) = state.audio.as_ref() {
-            if let Err(e) = engine.apply(wanted(&settings)) {
-                eprintln!("audio : ouverture de la carte : {e:#}");
-            }
+    let handle = app.clone();
+    let rate_changed = tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        let engine = state.audio.as_ref()?;
+        if let Err(e) = engine.apply(wanted(&settings)) {
+            eprintln!("audio : ouverture de la carte : {e:#}");
         }
+        Some(engine.fx_cleared_at() != 0)
     })
     .await
-    .map_err(public_err)
+    .map_err(public_err)?;
+    if rate_changed == Some(true) {
+        crate::plugin::reload_for_new_rate(&app).await;
+    }
+    Ok(())
 }
 
 /// Cartes de chaque pilote (charge les pilotes ASIO un à un : hors thread async).
@@ -351,6 +363,10 @@ pub struct AudioStatus {
     guitar_fader: f32,
     guitar_muted: bool,
     device_name: Option<String>,
+    /// Plugin d'ampli chargé (`None` : son direct).
+    plugin: Option<PluginInfo>,
+    /// Plugin mémorisé introuvable au démarrage (bandeau des réglages).
+    plugin_missing: Option<String>,
 }
 
 fn audio_status_now(state: &AppState) -> AudioStatus {
@@ -367,6 +383,14 @@ fn audio_status_now(state: &AppState) -> AudioStatus {
         guitar_fader: settings.guitar_fader,
         guitar_muted: settings.guitar_muted,
         device_name: settings.duplex.as_ref().map(|d| d.input_device.clone()),
+        plugin: None,
+        plugin_missing: None,
+    };
+    let plugin_latency = {
+        let plugin = state.plugin.lock().unwrap();
+        status.plugin = plugin.active.clone();
+        status.plugin_missing = plugin.missing.clone();
+        plugin.latency_samples
     };
     let Some(engine) = state.audio.as_ref() else {
         return status;
@@ -387,7 +411,9 @@ fn audio_status_now(state: &AppState) -> AudioStatus {
     if status.state == "running" {
         let duplex = settings.duplex.as_ref();
         status.buffer = duplex.filter(|d| d.host != "wasapi").map(|d| d.buffer);
-        status.latency_ms = status.buffer.map(|b| latency_ms(b, status.sample_rate));
+        status.latency_ms = status
+            .buffer
+            .map(|b| latency_ms(b, status.sample_rate, plugin_latency));
     }
     status
 }

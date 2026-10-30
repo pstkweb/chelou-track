@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/manifest", "crates/providers", "crates/keyring-dpapi-store", "crates/audio-core", "crates/audio-engine"]
+members = [".", "crates/manifest", "crates/providers", "crates/keyring-dpapi-store", "crates/audio-core", "crates/audio-engine", "crates/vst3-host"]
 resolver = "2"
 
 [package]
@@ -26,6 +26,7 @@ chelou-manifest  = { path = "crates/manifest" }
 chelou-providers  = { path = "crates/providers" }
 chelou-audio-core   = { path = "crates/audio-core" }
 chelou-audio-engine = { path = "crates/audio-engine" }
+chelou-vst3-host    = { path = "crates/vst3-host" }
 tauri        = { version = "2", features = [] }
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"

@@ -1,0 +1,27 @@
+[package]
+name = "chelou-vst3-host"
+version = "0.1.0"
+edition = "2021"
+
+# Hôte VST3 (voie A du spike : bindings `vst3` + classes COM `com-scrape-types` réexportées,
+# `libloading`). Pas de dépendance système, mais rien de testable sans vrais plugins : hors de la
+# commande de test canonique, sauf `scan` (`cargo test -p chelou-vst3-host`).
+[dependencies]
+chelou-audio-core = { path = "../audio-core" }
+anyhow     = "1"
+libloading = "0.9"
+rtrb       = "0.4"
+serde_json = "1"
+vst3       = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_HiDpi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+[dev-dependencies]
+chelou-audio-engine = { path = "../audio-engine" }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = ["Win32_UI_HiDpi"] }

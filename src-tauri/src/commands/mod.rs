@@ -74,9 +74,11 @@ pub struct AppState {
     /// Moteur audio natif (backing track, son direct) ; `None` si aucune sortie n'a pu être
     /// ouverte au démarrage — les commandes `backing_*` renvoient alors une erreur explicite.
     pub audio: Option<chelou_audio_engine::Engine>,
-    /// Réglages audio, miroir de `audio_settings_path` (`audio-settings.json`).
+    /// Réglages audio, miroir de `audio_settings_path` (`audio/settings.json`).
     pub audio_settings: Mutex<chelou_audio_core::settings::AudioSettings>,
     pub audio_settings_path: std::path::PathBuf,
+    /// Plugin d'ampli chargé (l'instance elle-même vit sur le thread principal, cf. `plugin`).
+    pub plugin: Mutex<crate::plugin::PluginStatus>,
 }
 
 /// Error message safe to hand to the WebView: provider URLs (pre-signed links) redacted.

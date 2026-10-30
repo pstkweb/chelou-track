@@ -7,5 +7,11 @@ pub mod gain;
 pub mod guitar;
 pub mod input;
 pub mod player;
+pub mod plugins;
 pub mod settings;
 pub mod silence;
+
+/// Taille max d'un bloc de mixage, en frames : un callback plus long est traité en plusieurs
+/// fois. C'est aussi le `maxSamplesPerBlock` annoncé au plugin VST3 (la taille réelle des
+/// callbacks varie selon le pilote).
+pub const MAX_BLOCK: usize = 4096;

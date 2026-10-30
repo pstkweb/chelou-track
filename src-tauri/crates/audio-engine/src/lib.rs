@@ -16,23 +16,22 @@
 
 mod devices;
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
-use chelou_audio_core::guitar::{guitar_lane, GuitarControl, GuitarLane};
+use chelou_audio_core::guitar::{guitar_lane, GuitarControl, GuitarFx, GuitarLane};
 use chelou_audio_core::input::InputFeed;
 use chelou_audio_core::player::{backing_player, BackingPlayer, PlayerControl};
 use chelou_audio_core::settings::{explain_open_error, DuplexConfig};
+use chelou_audio_core::MAX_BLOCK;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, I24};
 
 pub use devices::{list_devices, DeviceInfo, HostDevices};
 
-/// Taille max d'un bloc de mixage, en frames : un callback plus long est traité en plusieurs fois.
-const MIX_FRAMES: usize = 4096;
 /// Sortie forcée au silence après l'ouverture : absorbe l'à-coup de démarrage (non compté).
 const WARMUP_MS: u32 = 100;
 const RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -69,6 +68,12 @@ enum Event {
 struct Inner {
     control: Mutex<PlayerControl>,
     guitar: Mutex<GuitarControl>,
+    /// Voie guitare jouée par le callback de sortie (cf. `SharedPlayer`) ; `Engine::install_fx` y
+    /// installe le plugin.
+    lane: SharedLane,
+    /// Fréquence à laquelle l'effet a été retiré de la voie (flux rouverts à une autre
+    /// fréquence), 0 sinon : son propriétaire doit le recharger.
+    fx_cleared_at: AtomicU32,
     state: Mutex<EngineState>,
     xruns: Arc<AtomicU64>,
     /// Une sortie joue (duplex ou sortie seule, même de repli) : la backing track est audible.
@@ -94,6 +99,29 @@ impl Engine {
 
     pub fn guitar(&self) -> MutexGuard<'_, GuitarControl> {
         self.inner.guitar.lock().unwrap()
+    }
+
+    /// Installe l'effet de la voie guitare, préparé pour `rate`, et rend le précédent, à libérer
+    /// par l'appelant. Flux rouverts entre-temps à une autre fréquence : `fx` est refusé et rendu
+    /// (cf. `GuitarLane::install_fx`). Le verrou est pris ici, côté appelant : le callback
+    /// (`try_lock`) saute au pire la guitare d'un bloc.
+    pub fn install_fx(
+        &self,
+        fx: Box<dyn GuitarFx>,
+        rate: u32,
+    ) -> Result<Option<Box<dyn GuitarFx>>, Box<dyn GuitarFx>> {
+        self.inner.lane.lock().unwrap().install_fx(fx, rate)
+    }
+
+    /// Retire l'effet de la voie guitare (son direct) et le rend, à libérer par l'appelant.
+    pub fn take_fx(&self) -> Option<Box<dyn GuitarFx>> {
+        self.inner.lane.lock().unwrap().take_fx()
+    }
+
+    /// Fréquence à laquelle l'effet a été retiré de la voie depuis le dernier appel (flux
+    /// rouverts à une autre fréquence), 0 sinon ; remise à 0 par la lecture.
+    pub fn fx_cleared_at(&self) -> u32 {
+        self.inner.fx_cleared_at.swap(0, Relaxed)
     }
 
     pub fn state(&self) -> EngineState {
@@ -181,7 +209,6 @@ struct Runner {
     inner: Arc<Inner>,
     events: mpsc::Sender<Event>,
     player: SharedPlayer,
-    lane: SharedLane,
     rate: u32,
     /// Vide : plus aucune sortie, réessai périodique.
     streams: Vec<cpal::Stream>,
@@ -200,6 +227,8 @@ fn engine_thread(config: Option<DuplexConfig>, ready: mpsc::Sender<Result<Arc<In
     let inner = Arc::new(Inner {
         control: Mutex::new(control),
         guitar: Mutex::new(guitar),
+        lane: Arc::new(Mutex::new(lane)),
+        fx_cleared_at: AtomicU32::new(0),
         state: Mutex::new(EngineState::OutputOnly),
         xruns: Arc::new(AtomicU64::new(0)),
         output_open: AtomicBool::new(false),
@@ -210,7 +239,6 @@ fn engine_thread(config: Option<DuplexConfig>, ready: mpsc::Sender<Result<Arc<In
         inner: inner.clone(),
         events: events_tx,
         player: Arc::new(Mutex::new(player)),
-        lane: Arc::new(Mutex::new(lane)),
         rate: 0,
         streams: Vec::new(),
         heartbeat: Arc::new(AtomicU64::new(0)),
@@ -345,8 +373,16 @@ impl Runner {
 
     /// Lecteur pour des flux à `rate` : l'actuel à même fréquence (le track et sa position sont
     /// gardés), sinon un nouveau, installé par `adopt` seulement si les flux s'ouvrent — un échec
-    /// ne doit pas perdre le track chargé.
+    /// ne doit pas perdre le track chargé. À une autre fréquence, l'effet de la voie guitare
+    /// (préparé pour l'ancienne) est retiré dès maintenant, flux fermés : aucun callback ne le
+    /// joue à la mauvaise fréquence.
     fn candidate(&self, rate: u32) -> (Option<PlayerControl>, SharedPlayer) {
+        // Toujours, même à fréquence égale : la voie suit la fréquence des flux qui s'ouvrent
+        // (un essai raté à une autre fréquence l'a peut-être changée).
+        let cleared = self.inner.lane.lock().unwrap().set_stream_rate(rate);
+        if cleared.is_some() {
+            self.inner.fx_cleared_at.store(rate, Relaxed);
+        }
         if rate == self.rate {
             return (None, self.player.clone());
         }
@@ -563,12 +599,12 @@ impl Runner {
         let channels = config.channels as usize;
         let rate = config.sample_rate as f64;
         let mut warmup = (config.sample_rate * WARMUP_MS / 1000) as usize;
-        let lane = self.lane.clone();
+        let lane = self.inner.lane.clone();
         let xruns = self.inner.xruns.clone();
         let heartbeat = self.heartbeat.clone();
         // Pré-alloués : le callback ne fait aucune allocation.
-        let mut mix = vec![0.0f32; MIX_FRAMES * 2];
-        let mut mono = vec![0.0f32; MIX_FRAMES];
+        let mut mix = vec![0.0f32; MAX_BLOCK * 2];
+        let mut mono = vec![0.0f32; MAX_BLOCK];
         let stream = device
             .build_output_stream(
                 *config,
@@ -577,7 +613,7 @@ impl Runner {
                     heartbeat.fetch_add(1, Relaxed);
                     let counted = warmup == 0;
                     let mut underrun = false;
-                    for block in data.chunks_mut(MIX_FRAMES * channels) {
+                    for block in data.chunks_mut(MAX_BLOCK * channels) {
                         let frames = block.len() / channels;
                         let mix = &mut mix[..frames * 2];
                         let mono = &mut mono[..frames];

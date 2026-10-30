@@ -4,6 +4,7 @@ mod commands;
 mod manifest;
 #[cfg(target_os = "linux")]
 mod media_server;
+mod plugin;
 mod providers;
 mod stream;
 
@@ -64,7 +65,7 @@ pub fn run() {
                 ),
             }
 
-            let audio_settings_path = app_dir.join("audio-settings.json");
+            let audio_settings_path = chelou_audio_core::settings::settings_path(&app_dir);
             let audio_settings = chelou_audio_core::settings::load_settings(&audio_settings_path);
             let audio = audio::start_engine(&audio_settings);
 
@@ -82,6 +83,7 @@ pub fn run() {
                 audio,
                 audio_settings: Mutex::new(audio_settings),
                 audio_settings_path,
+                plugin: Mutex::new(plugin::PluginStatus::default()),
             });
 
             audio::open_saved_card(app.handle());
@@ -121,7 +123,26 @@ pub fn run() {
             audio::guitar_set_muted,
             audio::audio_reset_xruns,
             audio::audio_status,
+            plugin::plugin_folders,
+            plugin::plugin_add_folder,
+            plugin::plugin_remove_folder,
+            plugin::plugin_scan,
+            plugin::plugin_load,
+            plugin::plugin_unload,
+            plugin::plugin_open_editor,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Le plugin doit être démonté (partie temps réel retirée de la voie, éditeur fermé)
+            // avant la sortie du processus : sa DLL ne doit pas disparaître sous le callback.
+            if let tauri::RunEvent::Exit = event {
+                plugin::shutdown(app);
+            }
+        });
+}
+
+/// Mode `--vst3-probe <bundle>` (processus enfant du scan des plugins) : cf. `plugin::probe_main`.
+pub fn vst3_probe(bundle: Option<&std::ffi::OsStr>) -> i32 {
+    plugin::probe_main(bundle)
 }

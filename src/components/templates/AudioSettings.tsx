@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import Button from '@/components/atoms/Button';
 import Chip from '@/components/atoms/Chip';
 import IconButton from '@/components/atoms/IconButton';
+import SectionTitle from '@/components/atoms/SectionTitle';
 import Spinner from '@/components/atoms/Spinner';
 import LevelMeter from '@/components/molecules/LevelMeter';
+import PluginSection from '@/components/organisms/PluginSection';
 import { useAudioEngine } from '@/contexts/AudioEngineContext';
 import cn from '@/lib/cn';
 import type { AudioHost, DeviceInfo, DuplexConfig, HostDevices } from '@/lib/ipc';
@@ -74,14 +76,6 @@ function Segmented<T extends string | number>({
   );
 }
 
-function SectionTitle({ icon: I, children }: { icon: typeof Cpu; children: React.ReactNode }) {
-  return (
-    <h3 className="mb-3 flex items-center gap-2 font-bold text-[13px] text-fg2 uppercase tracking-[0.04em] [&_svg]:text-fg3">
-      <I size={15} /> {children}
-    </h3>
-  );
-}
-
 function EngineBar() {
   const { status, settings, restarting, setEnabled } = useAudioEngine();
   if (!status || !settings) {
@@ -146,10 +140,10 @@ function EngineBar() {
   );
 }
 
-function Welcome({ configured }: { configured: boolean }) {
+function Welcome({ configured, plugin }: { configured: boolean; plugin: boolean }) {
   const steps = [
-    { done: configured, soon: false, label: 'Choisis ta carte son et l’entrée de ta guitare' },
-    { done: false, soon: true, label: 'Charge ton plugin de simulation d’ampli' },
+    { done: configured, label: 'Choisis ta carte son et l’entrée de ta guitare' },
+    { done: plugin, label: 'Charge ton plugin de simulation d’ampli' },
   ];
 
   return (
@@ -169,12 +163,7 @@ function Welcome({ configured }: { configured: boolean }) {
             >
               {s.done ? <Check size={12} /> : i + 1}
             </span>
-            <span
-              className={cn([s.done ? 'text-fg2 line-through' : 'text-fg', s.soon && 'text-fg3'])}
-            >
-              {s.label}
-            </span>
-            {s.soon && <Chip className="h-5 text-[10.5px]">bientôt</Chip>}
+            <span className={s.done ? 'text-fg2 line-through' : 'text-fg'}>{s.label}</span>
           </div>
         ))}
       </div>
@@ -665,7 +654,7 @@ export default function AudioSettings() {
           </IconButton>
         </div>
         <div className="scroll flex min-h-0 flex-1 flex-col gap-4.5 px-6 pt-4.5 pb-8">
-          {!settings.duplex && <Welcome configured={false} />}
+          {!settings.duplex && <Welcome configured={false} plugin={settings.plugin !== null} />}
           <EngineBar />
           {devices === null && devicesLoading ? (
             <div className="flex items-center gap-2.5 text-[13px] text-fg2">
@@ -677,6 +666,7 @@ export default function AudioSettings() {
               <PerfSection hosts={hosts} />
             </>
           )}
+          <PluginSection />
         </div>
       </aside>
     </div>

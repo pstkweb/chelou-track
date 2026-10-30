@@ -1,4 +1,4 @@
-// Réglages audio persistés (`audio-settings.json` dans l'app-data dir, ARCHITECTURE.md §9) et
+// Réglages audio persistés (`audio/settings.json` dans l'app-data dir, ARCHITECTURE.md §9) et
 // calculs purs affichés par l'écran de réglages.
 
 use std::io::Write;
@@ -6,6 +6,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+
+use crate::plugins::PluginInfo;
 
 pub const SETTINGS_VERSION: u32 = 1;
 
@@ -38,6 +40,17 @@ pub struct AudioSettings {
     /// 0-100, 80 = 0 dB.
     pub guitar_fader: f32,
     pub guitar_muted: bool,
+    /// Plugin d'ampli choisi (gardé même s'il est introuvable au démarrage : une réinstallation
+    /// le retrouve).
+    pub plugin: Option<PluginInfo>,
+    /// Dossiers VST3 ajoutés par l'utilisateur, en plus des dossiers standard.
+    pub vst3_folders: Vec<String>,
+    /// Dernier résultat de scan (`None` : jamais scanné).
+    pub scan: Option<Vec<PluginInfo>>,
+    /// Rechargement du plugin mémorisé en cours au démarrage. Encore vrai au lancement suivant :
+    /// ce plugin a fait planter l'app en se chargeant, il n'est pas rechargé (sinon l'app
+    /// planterait à chaque lancement).
+    pub plugin_loading: bool,
 }
 
 impl Default for AudioSettings {
@@ -48,8 +61,30 @@ impl Default for AudioSettings {
             engine_enabled: true,
             guitar_fader: 80.0,
             guitar_muted: false,
+            plugin: None,
+            vst3_folders: Vec::new(),
+            scan: None,
+            plugin_loading: false,
         }
     }
+}
+
+/// Fichier des réglages : `<app_dir>/audio/settings.json` (dossier créé au besoin). Hors de
+/// l'app dir lui-même, où chaque `.json` est un manifeste de méthode. Un ancien
+/// `<app_dir>/audio-settings.json` y est déplacé s'il n'y a pas encore de réglages.
+pub fn settings_path(app_dir: &Path) -> std::path::PathBuf {
+    let dir = app_dir.join("audio");
+    let path = dir.join("settings.json");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("audio settings: create {}: {e}", dir.display());
+    }
+    let legacy = app_dir.join("audio-settings.json");
+    if legacy.exists() && !path.exists() {
+        if let Err(e) = std::fs::rename(&legacy, &path) {
+            eprintln!("audio settings: move {}: {e}", legacy.display());
+        }
+    }
+    path
 }
 
 /// Absent, illisible ou écrit par une version plus récente → réglages par défaut, sans toucher au
@@ -92,9 +127,10 @@ pub fn save_settings(path: &Path, s: &AudioSettings) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Latence aller-retour estimée (buffer d'entrée + buffer de sortie), en ms.
-pub fn latency_ms(buffer: u32, sample_rate: u32) -> f64 {
-    2.0 * buffer as f64 / sample_rate as f64 * 1000.0
+/// Latence aller-retour estimée (buffer d'entrée + buffer de sortie + latence du plugin, en
+/// échantillons), en ms.
+pub fn latency_ms(buffer: u32, sample_rate: u32, plugin_latency: u32) -> f64 {
+    (2.0 * buffer as f64 + plugin_latency as f64) / sample_rate as f64 * 1000.0
 }
 
 /// cpal (ASIO) répond « Sample rate N Hz is not supported » quand le pilote est tenu par une
@@ -125,6 +161,43 @@ mod tests {
         ))
     }
 
+    fn temp_app_dir() -> PathBuf {
+        let dir = temp_path().with_extension("dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn settings_live_in_the_audio_dir() {
+        let app = temp_app_dir();
+        let path = settings_path(&app);
+        assert_eq!(path, app.join("audio").join("settings.json"));
+        assert!(path.parent().unwrap().is_dir());
+        std::fs::remove_dir_all(app).unwrap();
+    }
+
+    #[test]
+    fn legacy_settings_file_is_moved_out_of_the_manifest_dir() {
+        // Les manifestes de méthodes sont tous les `.json` de l'app dir : les réglages audio
+        // n'ont rien à y faire (ils y étaient lus comme un manifeste invalide).
+        let app = temp_app_dir();
+        std::fs::write(app.join("audio-settings.json"), r#"{"guitarFader":42}"#).unwrap();
+        let path = settings_path(&app);
+        assert!(!app.join("audio-settings.json").exists());
+        assert_eq!(load_settings(&path).guitar_fader, 42.0);
+        std::fs::remove_dir_all(app).unwrap();
+    }
+
+    #[test]
+    fn legacy_file_never_overwrites_current_settings() {
+        let app = temp_app_dir();
+        std::fs::create_dir_all(app.join("audio")).unwrap();
+        std::fs::write(app.join("audio/settings.json"), r#"{"guitarFader":10}"#).unwrap();
+        std::fs::write(app.join("audio-settings.json"), r#"{"guitarFader":42}"#).unwrap();
+        assert_eq!(load_settings(&settings_path(&app)).guitar_fader, 10.0);
+        std::fs::remove_dir_all(app).unwrap();
+    }
+
     #[test]
     fn missing_file_gives_defaults() {
         let s = load_settings(&temp_path());
@@ -153,11 +226,41 @@ mod tests {
             engine_enabled: false,
             guitar_fader: 62.5,
             guitar_muted: true,
+            plugin: Some(amp()),
+            vst3_folders: vec![r"D:\Audio\VST3".into()],
+            scan: Some(vec![amp()]),
+            plugin_loading: true,
         };
         save_settings(&path, &s).unwrap();
         let json = std::fs::read_to_string(&path).unwrap();
         assert!(json.contains("\"inputChannel\""), "camelCase : {json}");
         assert_eq!(load_settings(&path), s);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    fn amp() -> PluginInfo {
+        PluginInfo {
+            id: "5653545448504C73746C20746F6E6568".into(),
+            name: "STL ToneHub".into(),
+            vendor: "STL Tones".into(),
+            path: r"C:\Program Files\Common Files\VST3\STL ToneHub.vst3".into(),
+            file: "STL ToneHub.vst3".into(),
+        }
+    }
+
+    #[test]
+    fn v1_file_without_plugin_fields_loads() {
+        let path = temp_path();
+        std::fs::write(
+            &path,
+            r#"{"schemaVersion":1,"duplex":null,"engineEnabled":true,"guitarFader":70,"guitarMuted":false}"#,
+        )
+        .unwrap();
+        let s = load_settings(&path);
+        assert_eq!(s.guitar_fader, 70.0);
+        assert_eq!(s.plugin, None);
+        assert_eq!(s.scan, None);
+        assert!(s.vst3_folders.is_empty());
         std::fs::remove_file(path).unwrap();
     }
 
@@ -182,7 +285,12 @@ mod tests {
 
     #[test]
     fn latency_at_128_48k() {
-        assert!((latency_ms(128, 48000) - 5.333).abs() < 1e-3);
+        assert!((latency_ms(128, 48000, 0) - 5.333).abs() < 1e-3);
+    }
+
+    #[test]
+    fn latency_includes_plugin() {
+        assert!((latency_ms(128, 48000, 106) - 7.542).abs() < 1e-3);
     }
 
     #[test]

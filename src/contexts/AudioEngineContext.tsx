@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useToast } from '@/contexts/ToastContext';
 import {
   type AudioSettings,
   type AudioStatus,
@@ -20,6 +21,14 @@ import {
   guitarSetFader,
   guitarSetMuted,
   type HostDevices,
+  type PluginFolders,
+  pluginAddFolder,
+  pluginFolders,
+  pluginLoad,
+  pluginOpenEditor,
+  pluginRemoveFolder,
+  pluginScan,
+  pluginUnload,
   subscribeAudioStatus,
 } from '@/lib/ipc';
 
@@ -41,6 +50,17 @@ interface AudioEngineValue {
   setFader: (value: number) => void;
   setMuted: (muted: boolean) => void;
   resetXruns: () => void;
+  /** Dossiers VST3 (standard + ajoutés) ; null tant qu'ils ne sont pas lus. */
+  folders: PluginFolders | null;
+  scanning: boolean;
+  /** Identifiant du plugin en cours de chargement. */
+  loadingPlugin: string | null;
+  scanPlugins: () => void;
+  loadPlugin: (id: string) => void;
+  unloadPlugin: () => void;
+  openPluginEditor: () => void;
+  addFolder: () => void;
+  removeFolder: (path: string) => void;
   settingsOpen: boolean;
   openSettings: () => void;
   closeSettings: () => void;
@@ -58,7 +78,9 @@ function sameStatus(a: AudioStatus | null, b: AudioStatus) {
     a.buffer === b.buffer &&
     a.latencyMs === b.latencyMs &&
     a.xruns === b.xruns &&
-    a.deviceName === b.deviceName
+    a.deviceName === b.deviceName &&
+    a.plugin?.id === b.plugin?.id &&
+    a.pluginMissing === b.pluginMissing
   );
 }
 
@@ -99,6 +121,10 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [folders, setFolders] = useState<PluginFolders | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [loadingPlugin, setLoadingPlugin] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -143,6 +169,24 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       .finally(() => setRestarting(false));
   }, []);
 
+  /** Erreur d'une commande plugin : montrée à l'utilisateur (chargement raté, pas d'interface…). */
+  const fail = useCallback(
+    (err: unknown) => showToast(err instanceof Error ? err.message : String(err), 'error'),
+    [showToast],
+  );
+
+  const scanPlugins = useCallback(() => {
+    setScanning(true);
+    pluginScan()
+      .then((scan) => setSettings((s) => (s ? { ...s, scan } : s)))
+      .catch(fail)
+      .finally(() => setScanning(false));
+  }, [fail]);
+
+  const refreshFolders = useCallback(() => {
+    pluginFolders().then(setFolders).catch(fail);
+  }, [fail]);
+
   const sendFader = useLatestSender(guitarSetFader);
   const sendMuted = useLatestSender(guitarSetMuted);
 
@@ -166,10 +210,42 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       resetXruns: () => {
         audioResetXruns();
       },
-      openSettings: () => setSettingsOpen(true),
+      scanPlugins,
+      loadPlugin: (id: string) => {
+        setLoadingPlugin(id);
+        pluginLoad(id)
+          .then((plugin) => setSettings((s) => (s ? { ...s, plugin } : s)))
+          .catch(fail)
+          .finally(() => setLoadingPlugin(null));
+      },
+      unloadPlugin: () => {
+        setSettings((s) => (s ? { ...s, plugin: null } : s));
+        pluginUnload().catch(fail);
+      },
+      openPluginEditor: () => {
+        pluginOpenEditor().catch(fail);
+      },
+      // Un dossier ajouté est scanné aussitôt (maquette).
+      addFolder: () => {
+        pluginAddFolder()
+          .then((added) => {
+            refreshFolders();
+            if (added) {
+              scanPlugins();
+            }
+          })
+          .catch(fail);
+      },
+      removeFolder: (path: string) => {
+        pluginRemoveFolder(path).then(refreshFolders).catch(fail);
+      },
+      openSettings: () => {
+        refreshFolders();
+        setSettingsOpen(true);
+      },
       closeSettings: () => setSettingsOpen(false),
     }),
-    [refreshDevices, reopen, sendFader, sendMuted],
+    [refreshDevices, reopen, sendFader, sendMuted, scanPlugins, refreshFolders, fail],
   );
 
   const value = useMemo<AudioEngineValue>(
@@ -181,9 +257,23 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       devicesLoading,
       restarting,
       settingsOpen,
+      folders,
+      scanning,
+      loadingPlugin,
       ...actions,
     }),
-    [status, settings, devices, devicesLoading, restarting, settingsOpen, actions],
+    [
+      status,
+      settings,
+      devices,
+      devicesLoading,
+      restarting,
+      settingsOpen,
+      folders,
+      scanning,
+      loadingPlugin,
+      actions,
+    ],
   );
 
   return <AudioEngineContext.Provider value={value}>{children}</AudioEngineContext.Provider>;
