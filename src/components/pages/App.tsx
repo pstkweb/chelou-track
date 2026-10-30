@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import TitleBar from '@/components/organisms/TitleBar';
+import AudioSettings from '@/components/templates/AudioSettings';
 import ConnectScreen from '@/components/templates/ConnectScreen';
 import LessonScreen from '@/components/templates/LessonScreen';
 import LibraryScreen from '@/components/templates/LibraryScreen';
 import MethodScreen from '@/components/templates/MethodScreen';
+import { AudioEngineProvider } from '@/contexts/AudioEngineContext';
 import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { LibraryProvider, useLibrary } from '@/contexts/LibraryContext';
 import { NavigationProvider, useNavigation } from '@/contexts/NavigationContext';
@@ -97,30 +99,33 @@ export default function App() {
     <div className="app-window">
       <ToastProvider>
         <UpdateChecker />
-        <BreadcrumbProvider>
-          {state !== 'loading' && (
-            <LibraryProvider>
-              <TitleBar connectedProvider={connectedProvider} onLogout={handleLogout} />
+        <AudioEngineProvider>
+          <BreadcrumbProvider>
+            {state !== 'loading' && (
+              <LibraryProvider>
+                <TitleBar connectedProvider={connectedProvider} onLogout={handleLogout} />
 
-              <div className="app-body">
-                {state === 'ready' ? (
-                  <NavigationProvider>
-                    <AuthenticatedView />
-                  </NavigationProvider>
-                ) : (
-                  <ConnectScreen
-                    startAtFolder={state === 'no-methods'}
-                    provider={connectedProvider}
-                    onConnected={(provider) => {
-                      setConnectedProvider(provider);
-                      setState('ready');
-                    }}
-                  />
-                )}
-              </div>
-            </LibraryProvider>
-          )}
-        </BreadcrumbProvider>
+                <div className="app-body">
+                  {state === 'ready' ? (
+                    <NavigationProvider>
+                      <AuthenticatedView />
+                    </NavigationProvider>
+                  ) : (
+                    <ConnectScreen
+                      startAtFolder={state === 'no-methods'}
+                      provider={connectedProvider}
+                      onConnected={(provider) => {
+                        setConnectedProvider(provider);
+                        setState('ready');
+                      }}
+                    />
+                  )}
+                </div>
+              </LibraryProvider>
+            )}
+          </BreadcrumbProvider>
+          <AudioSettings />
+        </AudioEngineProvider>
       </ToastProvider>
     </div>
   );

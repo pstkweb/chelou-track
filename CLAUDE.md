@@ -28,6 +28,14 @@ cd src-tauri && cargo check
 # Lints Rust
 cd src-tauri && cargo clippy
 
+# Windows : la feature `asio` de cpal exige LLVM (`LIBCLANG_PATH`, ex. `C:\Program Files\LLVM\bin`)
+# et, optionnellement, le SDK ASIO Steinberg (`CPAL_ASIO_DIR` ; sinon asio-sys le télécharge) —
+# à placer dans le `[env]` de src-tauri/.cargo/config.toml (cf. config.toml.example)
+
+# Vérification manuelle du moteur audio (sortie seule / son direct de la guitare)
+cd src-tauri && cargo run -p chelou-audio-engine --example play -- <fichier audio>
+cd src-tauri && cargo run -p chelou-audio-engine --example duplex -- --host asio --device "Focusrite USB ASIO" --input 2
+
 # Tests unitaires Rust (sous-crates sans dépendances système Tauri — cf. §15 ARCHITECTURE.md)
 cd src-tauri && cargo test -p chelou-manifest -p chelou-providers -p chelou-audio-core
 
@@ -40,7 +48,7 @@ npx tsc --noEmit
 - **Tauri v2** (Rust backend + WebView2 sur Windows), frontend TypeScript + Vite.
 - **AlphaTab** (`@coderline/alphatab@1.8.4`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
-- **Moteur audio natif Rust** (`cpal` + `symphonia` + `rubato`, sous-crates `chelou-audio-core`/`chelou-audio-engine`) pour la lecture des backing tracks : téléchargés et décodés en entier avant lecture, lus à vitesse 1 sur la sortie par défaut du système, détection du silence de tête au décodage. Le métronome reste un `AudioContext` côté WebView (en attendant son passage dans le moteur).
+- **Moteur audio natif Rust** (`cpal` + `symphonia` + `rubato`, sous-crates `chelou-audio-core`/`chelou-audio-engine`) pour la lecture des backing tracks : téléchargés et décodés en entier avant lecture, lus à vitesse 1, détection du silence de tête au décodage. Sans carte configurée : sortie par défaut du système ; carte choisie : duplex (ASIO/WASAPI sur Windows, CoreAudio, ALSA) avec la guitare en son direct. Le métronome reste un `AudioContext` côté WebView (en attendant son passage dans le moteur).
 - **reqwest** côté Rust pour les appels aux providers + streaming Range.
 - **keyring-core** pour le token du provider connecté (store par OS — `keyring-dpapi-store` maison sur Windows, Keychain/Secret Service natifs ailleurs).
 
@@ -54,7 +62,9 @@ TS (WebView)          Rust (Tauri backend)                 Provider cloud (pClou
 invoke("cmd")    ──►  commands/mod.rs                 ──►  eapi.pcloud.com
 fetch("stream://") ►  stream/mod.rs (protocol)         ──►  bytes (Range)
 invoke("backing_*") ► audio/mod.rs                    ──►  fichier entier (resolve_media)
-Channel ◄──────────── backing_status (~60 Hz)              crates/audio-engine (sortie cpal)
+Channel ◄──────────── backing_status (~60 Hz)              crates/audio-engine (cpal : sortie seule / duplex)
+invoke("audio_*") ──► audio/mod.rs (réglages, cartes)
+Channel ◄──────────── audio_status (~30 Hz, vumètres)
                       auth/mod.rs (keyring-core, store par OS)
                       providers/mod.rs (registre ProviderClient/ProviderAuthClient)
                       crates/providers (trait StorageProvider + adapters par provider)
@@ -78,7 +88,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
 | `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
-| `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek/set_volume) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) — cf. ARCHITECTURE.md §7 |
+| `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek/set_volume) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) ; carte son : `audio_devices`, `audio_settings`, `audio_configure`, `audio_set_enabled`, `guitar_set_fader`/`guitar_set_muted`, `audio_reset_xruns`, `audio_status` (~30 Hz, permanent) ; réglages lus au démarrage depuis `audio-settings.json` — cf. ARCHITECTURE.md §7, §9 |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
 
@@ -107,12 +117,16 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | `src/decode.rs` | `decode_stereo` (wav/mp3/flac → stéréo f32 entrelacé, paquets corrompus sautés) + `resample` (fréquence de la sortie, durée conservée) |
 | `src/player.rs` | `BackingPlayer` (côté callback audio : aucune allocation/verrou/libération) + `PlayerControl` (ordres par file lock-free, statut par atomiques, tracks remplacés libérés hors thread audio, `load` refuse un track rééchantillonné pour une autre fréquence) + `LoadGeneration` (un chargement périmé ne remplace pas le track en place) |
 | `src/silence.rs` | `scan_leading_silence` : fin du silence de tête (pic par fenêtre, plancher au percentile bas) |
+| `src/gain.rs` | `GainRamp` (rampe linéaire de 256 frames, indépendante du découpage en blocs) + `fader_gain` (fader 0-100, 80 = 0 dB → gain `(v/80)²`) |
+| `src/guitar.rs` | `GuitarLane` (callback : entrée mono ajoutée en stéréo × gain en rampe, crêtes en atomiques) + `GuitarControl` (volume, mute, lecture des crêtes) |
+| `src/settings.rs` | `AudioSettings`/`DuplexConfig` (miroir de `lib/ipc.ts`), `load_settings`/`save_settings` (écriture atomique, `schemaVersion`), `latency_ms`, `explain_open_error` (pilote ASIO occupé) |
 
 **`src-tauri/crates/audio-engine/`** (sous-crate `chelou-audio-engine` — `cpal`, donc ALSA sur Linux : hors de la commande de test canonique, ses tests ne tournent qu'en local via `cargo test -p chelou-audio-engine`)
 
 | Fichier | Rôle |
 |---|---|
-| `src/lib.rs` | `start()` : ouvre la sortie par défaut dans un thread dédié propriétaire du flux, joue le `BackingPlayer`, absorbe l'à-coup d'ouverture, rouvre la sortie par défaut si elle disparaît (`requires_rebuild` : les accrocs dont le flux se remet seul — xrun, changement de route — ne le reconstruisent pas). `examples/play.rs` pour une vérification manuelle |
+| `src/lib.rs` | `start(config)` / `Engine::apply` : thread dédié propriétaire des flux, en sortie seule (sortie par défaut, rouverte chaque seconde si elle disparaît) ou en duplex (entrée → ring `rtrb` → voie guitare + `BackingPlayer` → sortie ; échec ou carte perdue → repli en sortie seule avec l'erreur dans `EngineState`). Absorbe l'à-coup d'ouverture, compte les coupures ; `requires_rebuild` : les accrocs dont le flux se remet seul ne reconstruisent rien. `examples/play.rs` et `examples/duplex.rs` pour une vérification manuelle |
+| `src/devices.rs` | `list_devices` : cartes par pilote (canaux, fréquences, bornes du buffer) ; `Engine::devices` y ajoute la carte ASIO ouverte (un pilote ASIO chargé empêche d'énumérer les autres) |
 
 **`src-tauri/crates/keyring-dpapi-store/`** (sous-crate `keyring-dpapi-store` — dépendances : `keyring-core` + `windows-dpapi`, zéro dépendance Tauri, Windows uniquement)
 
@@ -125,10 +139,15 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | Fichier | Rôle |
 |---|---|
 | `types/model.ts` | Interfaces du modèle (§8 ARCHITECTURE.md) — source de vérité TS |
-| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider`, commandes `backing_*` du moteur audio et `subscribeBackingStatus` (`Channel`) |
+| `lib/ipc.ts` | Wrappers typés autour de `invoke()` — seule surface d'appel vers Rust ; commandes auth/scan paramétrées par `Provider`, commandes `backing_*` du moteur audio et `subscribeBackingStatus` (`Channel`), commandes `audio_*`/`guitar_*` de la carte son et `subscribeAudioStatus` |
 | `lib/stream.ts` | Constructeurs d'URL `stream://video/{provider}/{id}`, `stream://tab/…`, `stream://doc/…` (serveur loopback + jeton sur Linux, `initMediaToken` appelé avant le premier rendu) ; `fetchStream` = `fetch` qui rejette sur statut non-2xx |
 | `lib/providers.ts` | Registre `PROVIDERS` (label, icône par `Provider`) — source unique pour l'UI (ConnectScreen, FolderPicker, TitleBar) |
 | `lib/serial-queue.ts` | `createSerialQueue` : file d'exécution séquentielle (testée vitest) — ordonne chargements et déchargements du moteur entre toutes les vues |
+| `lib/fader.ts` | `faderDb` : position de fader (80 = 0 dB) en dB affichables (testé vitest) |
+| `contexts/AudioEngineContext.tsx` | `useAudioEngine()` : abonnement unique au statut de la carte (crêtes gardées hors React pour les vumètres), réglages, inventaire des cartes, actions, ouverture du tiroir de réglages |
+| `components/organisms/GuitarControl.tsx` | Barre de titre : état de la carte (« Configurer l'audio », « Audio arrêté », « Audio : erreur ») ou mute + vumètre guitare + popover volume |
+| `components/templates/AudioSettings.tsx` | Tiroir des réglages audio : état de la carte, pilote, carte (WASAPI : entrée et sortie séparées), entrée guitare, sortie, fréquence, buffer, latence, coupures |
+| `components/molecules/LevelMeter.tsx` | Vumètre animé par `requestAnimationFrame`, hors rendu React |
 | `lib/lead-in.ts` | `leadInFromSilence` : lead-in à partir du silence détecté par le moteur, refusé si les infos se rapportent à un autre track (testé vitest) |
 | `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |
 | `components/templates/TabScreen.tsx` | Vue synchro : moteur natif + AlphaTab (boucle de synchro, voir ci-dessous) |

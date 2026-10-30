@@ -292,3 +292,125 @@ input.search:focus {
 .at-highlight * {
   @apply fill-accent stroke-accent;
 }
+
+/* ============================ AUDIO ============================ */
+/* Vumètre segmenté (molecules/LevelMeter) : dégradé fixe + cache sur la partie éteinte, crête. */
+.lvl {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--done) 0 64%, var(--warn) 64% 86%, var(--danger) 86%);
+}
+
+.lvl::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 calc(var(--seg) - 1px),
+    var(--bg-2) calc(var(--seg) - 1px) var(--seg)
+  );
+}
+
+.lvl-cover {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text) 11%, var(--bg-2));
+}
+
+.lvl-peak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 2px;
+  background: var(--text);
+  opacity: 0;
+}
+
+.lvl-dim {
+  filter: saturate(0);
+  opacity: 0.45;
+}
+
+/* Popover ancré (position fixée par l'appelant) */
+.popover {
+  @apply absolute z-40 rounded-lg border border-border2 bg-bg2 p-3.5 shadow-soft;
+  animation: fade-up 0.16s var(--ease);
+}
+
+/* Lien d'action en pied de popover / de section */
+.pop-link {
+  @apply mt-3.5 flex w-full items-center gap-1.75 border-0 border-t border-border bg-transparent pt-2 text-left text-[12.5px] font-semibold text-fg2 hover:text-accent;
+}
+
+/* Bouton mute d'une voie */
+.mute-btn {
+  @apply inline-flex size-6.5 flex-none items-center justify-center rounded-sm border border-border bg-chip p-0 text-fg2 hover:border-border2 hover:text-fg disabled:cursor-default disabled:opacity-40;
+}
+
+.mute-btn.on {
+  @apply border-mix-(--danger)/55 bg-mix-(--danger)/16 text-danger;
+}
+
+/* Fader de volume (input range) */
+.fader {
+  @apply m-0 h-4 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-default disabled:opacity-35;
+}
+
+.fader::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-2);
+}
+
+.fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 2px solid var(--bg-2);
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+
+.fader:focus-visible {
+  @apply rounded outline-2 outline-offset-2 outline-accent;
+}
+
+/* Tiroir latéral (réglages audio, réglages plugin à venir) */
+.drawer-wrap {
+  @apply absolute inset-0 z-60 flex justify-end backdrop-blur-[2px];
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.drawer {
+  @apply flex h-full w-[min(600px,100%)] flex-col border-l border-border2 bg-bg2 shadow-soft;
+  animation: drawer-in 0.22s var(--ease);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

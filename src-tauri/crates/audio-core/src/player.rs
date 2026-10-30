@@ -7,9 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::Arc;
 
 use crate::decode::Pcm;
-
-/// Durée de la rampe de gain, en frames : évite le clic d'un changement de volume brutal.
-const GAIN_RAMP_FRAMES: f32 = 256.0;
+use crate::gain::GainRamp;
 
 enum Command {
     Load(Arc<Pcm>),
@@ -79,8 +77,7 @@ pub struct BackingPlayer {
     track: Option<Arc<Pcm>>,
     position: usize,
     playing: bool,
-    gain: f32,
-    target_gain: f32,
+    gain: GainRamp,
 }
 
 pub fn backing_player(sample_rate: u32) -> (PlayerControl, BackingPlayer) {
@@ -101,8 +98,7 @@ pub fn backing_player(sample_rate: u32) -> (PlayerControl, BackingPlayer) {
             track: None,
             position: 0,
             playing: false,
-            gain: 1.0,
-            target_gain: 1.0,
+            gain: GainRamp::new(1.0),
         },
     )
 }
@@ -208,7 +204,7 @@ impl BackingPlayer {
                     self.position = (frames as usize).min(len);
                     self.shared.ended.store(false, Relaxed);
                 }
-                Command::Gain(g) => self.target_gain = g,
+                Command::Gain(g) => self.gain.set_target(g),
             }
         }
     }
@@ -218,26 +214,19 @@ impl BackingPlayer {
         self.apply_commands();
         if let (true, Some(track)) = (self.playing, self.track.as_ref()) {
             let len = track.frames();
-            let step = (self.target_gain - self.gain) / GAIN_RAMP_FRAMES;
             for frame in out.as_chunks_mut::<2>().0 {
                 if self.position >= len {
                     self.playing = false;
                     self.shared.ended.store(true, Relaxed);
                     break;
                 }
-                if self.gain != self.target_gain {
-                    self.gain = if (self.target_gain - self.gain).abs() <= step.abs() {
-                        self.target_gain
-                    } else {
-                        self.gain + step
-                    };
-                }
-                frame[0] += track.samples[2 * self.position] * self.gain;
-                frame[1] += track.samples[2 * self.position + 1] * self.gain;
+                let gain = self.gain.tick();
+                frame[0] += track.samples[2 * self.position] * gain;
+                frame[1] += track.samples[2 * self.position + 1] * gain;
                 self.position += 1;
             }
         } else {
-            self.gain = self.target_gain;
+            self.gain.settle();
         }
         self.shared.position.store(self.position as u64, Relaxed);
         self.shared.playing.store(self.playing, Relaxed);
@@ -375,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn gain_ramps_without_jump() {
+    fn gain_ramp_is_linear_over_128_frame_blocks() {
         let (mut ctl, mut player) = backing_player(SR);
         ctl.load(Arc::new(Pcm {
             samples: vec![1.0; 2000],
@@ -384,9 +373,14 @@ mod tests {
         ctl.play();
         render(&mut player, 16, 0.0);
         ctl.set_gain(0.0);
-        let out = render(&mut player, 256, 0.0);
-        assert!(out[0] > 0.9, "premier échantillon {}", out[0]);
-        assert!(out[2 * 255] < 0.01, "dernier échantillon {}", out[2 * 255]);
+        let first = render(&mut player, 128, 0.0);
+        let second = render(&mut player, 128, 0.0);
+        assert!(
+            (first[2 * 127] - 0.5).abs() < 1e-6,
+            "milieu {}",
+            first[2 * 127]
+        );
+        assert_eq!(second[2 * 127], 0.0);
     }
 
     #[test]

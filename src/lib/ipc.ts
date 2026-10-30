@@ -180,3 +180,107 @@ export async function subscribeBackingStatus(
     active = false;
   };
 }
+
+// --- Carte son, son direct (cf. ARCHITECTURE.md §7) ---
+
+export type AudioHost = 'asio' | 'wasapi' | 'coreaudio' | 'alsa';
+
+/** Carte ouverte en duplex. Canaux 0-based ; entrée ≠ sortie seulement en WASAPI. */
+export interface DuplexConfig {
+  host: AudioHost;
+  inputDevice: string;
+  outputDevice: string;
+  inputChannel: number;
+  outputPair: number;
+  sampleRate: number;
+  buffer: number;
+}
+
+export interface AudioSettings {
+  schemaVersion: number;
+  /** null : jamais configuré, sortie seule. */
+  duplex: DuplexConfig | null;
+  /** false : carte arrêtée par l'utilisateur. */
+  engineEnabled: boolean;
+  /** 0-100, 80 = 0 dB. */
+  guitarFader: number;
+  guitarMuted: boolean;
+}
+
+export interface DeviceInfo {
+  name: string;
+  inputs: number;
+  outputs: number;
+  sampleRates: number[];
+  bufferMin: number | null;
+  bufferMax: number | null;
+}
+
+export interface HostDevices {
+  host: AudioHost;
+  devices: DeviceInfo[];
+}
+
+export interface AudioStatus {
+  state: 'off' | 'running' | 'stopped' | 'error';
+  error: string | null;
+  sampleRate: number;
+  /** null hors duplex et en WASAPI (buffer système). */
+  buffer: number | null;
+  latencyMs: number | null;
+  xruns: number;
+  /** Crêtes 0-1 depuis le statut précédent. */
+  inputLevel: number;
+  outputLevel: number;
+  guitarFader: number;
+  guitarMuted: boolean;
+  deviceName: string | null;
+}
+
+/** Cartes de chaque pilote (lent en ASIO : chaque pilote est chargé tour à tour). */
+export async function audioDevices(): Promise<HostDevices[]> {
+  return invoke('audio_devices');
+}
+
+export async function audioSettings(): Promise<AudioSettings> {
+  return invoke('audio_settings');
+}
+
+/** Ouvre et mémorise la carte (null : sortie seule). Un échec d'ouverture arrive par le statut. */
+export async function audioConfigure(duplex: DuplexConfig | null): Promise<void> {
+  await invoke('audio_configure', { duplex });
+}
+
+/** Arrêter (false) / Démarrer, Redémarrer (true) la carte. */
+export async function audioSetEnabled(enabled: boolean): Promise<void> {
+  await invoke('audio_set_enabled', { enabled });
+}
+
+export async function guitarSetFader(fader: number): Promise<void> {
+  await invoke('guitar_set_fader', { fader });
+}
+
+export async function guitarSetMuted(muted: boolean): Promise<void> {
+  await invoke('guitar_set_muted', { muted });
+}
+
+export async function audioResetXruns(): Promise<void> {
+  await invoke('audio_reset_xruns');
+}
+
+/** Statut de la carte toutes les 33 ms, en permanence. Même mécanique que subscribeBackingStatus. */
+export async function subscribeAudioStatus(
+  onStatus: (status: AudioStatus) => void,
+): Promise<() => void> {
+  let active = true;
+  const channel = new Channel<AudioStatus>();
+  channel.onmessage = (status) => {
+    if (active) {
+      onStatus(status);
+    }
+  };
+  await invoke('audio_status', { channel });
+  return () => {
+    active = false;
+  };
+}

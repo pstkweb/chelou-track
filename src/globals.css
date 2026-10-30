@@ -19,6 +19,8 @@
 
   /* Statut */
   --done: #4fae6a;
+  --warn: #e8b931;
+  --danger: #e5484d;
 
   /* Accent + surfaces — valeurs CLAIRES par défaut */
   --accent: #5f8a00;
@@ -75,6 +77,8 @@
   /* texte SUR l'accent */
   --color-chip: var(--chip);
   --color-done: var(--done);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
 
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);

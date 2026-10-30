@@ -54,5 +54,11 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # cpal ASIO (Windows) : bindgen a besoin de libclang (LLVM, préinstallé sur le runner) ;
+      # asio-sys télécharge lui-même le SDK ASIO Steinberg quand CPAL_ASIO_DIR n'est pas défini.
+      - name: Point bindgen to LLVM
+        if: runner.os == 'Windows'
+        run: echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings

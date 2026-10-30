@@ -7,3 +7,9 @@ edition = "2021"
 chelou-audio-core = { path = "../audio-core" }
 anyhow = "1"
 cpal   = "0.18"
+rtrb   = "0.4"
+serde  = { version = "1", features = ["derive"] }
+
+# ASIO (Windows) : exige LLVM (`LIBCLANG_PATH`) et le SDK ASIO Steinberg (`CPAL_ASIO_DIR`) au build.
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "0.18", features = ["asio"] }

@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_owned);
-    let engine = chelou_audio_engine::start()?;
+    let engine = chelou_audio_engine::start(None)?;
     let pcm = resample(
         &decode_stereo(std::fs::read(&path)?, ext.as_deref())?,
         engine.sample_rate(),

@@ -25,8 +25,10 @@ joué (§7) — un ralentissement du provider ne doit jamais devenir une coupure
 - **Audio : moteur natif Rust** (`cpal`, sous-crates `chelou-audio-core` et
   `chelou-audio-engine`, §7) — il possède la sortie audio du système et joue le backing track,
   téléchargé puis décodé en entier (`symphonia`) et rééchantillonné (`rubato`) à la fréquence de
-  la sortie. Le track est lu à vitesse 1 : c'est lui qui donne le tempo. Le métronome reste
-  pour l'instant un `AudioContext` côté WebView, déclenché par la position du moteur.
+  la sortie. Le track est lu à vitesse 1 : c'est lui qui donne le tempo. Une fois une carte son
+  choisie, le moteur l'ouvre en **duplex** (ASIO ou WASAPI sur Windows, CoreAudio, ALSA) et
+  mixe la guitare en son direct avec le backing track. Le métronome reste pour l'instant un
+  `AudioContext` côté WebView, déclenché par la position du moteur.
 
 Electron a été explicitement écarté.
 
@@ -126,7 +128,9 @@ Règle : **token pCloud + octets → Rust. Rendu + synchro → TS.**
 - Handler du protocole `stream://` (Range + fallback transcodé).
 - Persistance du manifeste local (§9).
 - Moteur audio natif (§7) : sortie audio, lecture du backing track, détection du silence de
-  tête, statut de lecture poussé au WebView.
+  tête, statut de lecture poussé au WebView ; carte son en duplex (son direct de la guitare),
+  inventaire des cartes, réglages audio persistés (§9), statut de la carte et crêtes des
+  vumètres poussés au WebView.
 
 **TS (frontend) :**
 - Navigation catalogue (méthode → leçons dans l'ordre).
@@ -192,6 +196,23 @@ téléchargé, décodé et rééchantillonné à la fréquence de la sortie avan
 bloquant, ni E/S, ni libération (un track remplacé repart par une file lock-free pour être
 libéré ailleurs). Si la sortie disparaît, le moteur retente chaque seconde d'ouvrir la nouvelle
 sortie par défaut ; si sa fréquence a changé, la vue recharge le track.
+
+**Mode duplex (carte son choisie dans les réglages audio).** Une seule carte pour l'entrée et la
+sortie : flux d'entrée + flux de sortie reliés par un ring lock-free mono (`rtrb`, sans
+pré-remplissage — en ASIO, l'entrée est servie juste avant la sortie dans le même cycle). Le
+callback de sortie mixe la voie guitare (`GuitarLane` : canal d'entrée choisi, dupliqué en
+stéréo, gain en rampe linéaire sans clic, crêtes pour les vumètres) puis le `BackingPlayer`, sur
+la paire de sorties choisie. Pilotes : **ASIO** (recommandé, fréquence et buffer réglables) et
+**WASAPI** partagé (fréquence imposée par Windows, buffer système) sur Windows, CoreAudio sur
+macOS, ALSA sur Linux. Les coupures (ring vide ou plein, callback plus long que son budget)
+sont comptées ; les 100 ms qui suivent l'ouverture restent muettes et non comptées. Une
+reconfiguration reconstruit les flux sur le thread moteur : à même fréquence, le track chargé
+et sa position sont conservés, sinon la vue recharge le track. Échec d'ouverture (pilote ASIO
+tenu par une autre application — cpal répond alors « Sample rate N Hz is not supported », traduit
+en « Pilote audio déjà utilisé par une autre application ») ou carte perdue : repli en sortie
+seule sur la sortie par défaut avec l'erreur dans le statut, la backing track continue ; pas de
+réessai automatique de la carte (« Redémarrer » dans les réglages). Le statut de la carte
+(`audio_status`, ~30 Hz, permanent) alimente le contrôle guitare de la barre de titre.
 
 Caractéristiques des backing tracks (confirmées) : **tempo constant** par fichier (plusieurs
 versions à des BPM différents pour l'apprentissage), **count-in quasi systématique d'une mesure**,
@@ -314,6 +335,10 @@ interface FileRef { fileId: string; name: string; }
   d'avant le versioning). Un fichier illisible ou d'une version plus récente est ignoré au
   chargement (log stderr) **sans être modifié**, pour qu'une version plus récente de l'app
   puisse toujours le lire. Incrémenter `SCHEMA_VERSION` à tout changement cassant du format.
+- **Réglages audio** (`audio-settings.json` dans l'app dir, `chelou_audio_core::settings`) :
+  carte choisie (pilote, entrée/sortie, canal, fréquence, buffer), carte arrêtée ou non, volume
+  et mute de la guitare. Même politique que le manifeste : écriture atomique, `schemaVersion`,
+  fichier absent, illisible ou plus récent → réglages par défaut (sortie seule) sans le modifier.
 
 ## 10. Section documents (séparée de la synchro)
 
@@ -418,7 +443,8 @@ Deux couches, jamais mélangées :
 Vivent dans les sous-crates sans dep Tauri : `chelou-manifest`, `chelou-providers` (ce
 dernier regroupe la logique de tous les providers cloud — pCloud aujourd'hui — en modules,
 aucun n'ayant de dépendance système qui justifierait un crate séparé) et `chelou-audio-core`
-(décodage, rééchantillonnage, lecteur temps réel, détection du silence). L'E/S audio
+(décodage, rééchantillonnage, lecteur temps réel, voie guitare, réglages audio, détection du
+silence). L'E/S audio
 (`chelou-audio-engine`, qui dépend de `cpal` donc d'ALSA sur Linux) n'a pas de tests
 unitaires : toute sa logique testable est dans `chelou-audio-core`.
 Lancés dans la CI sur `ubuntu-latest` sans installation d'libs système :

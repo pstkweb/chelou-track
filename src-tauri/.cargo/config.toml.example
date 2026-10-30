@@ -8,3 +8,7 @@ DROPBOX_CLIENT_ID = ""
 DROPBOX_CLIENT_SECRET = ""
 GDRIVE_CLIENT_ID = ""
 GDRIVE_CLIENT_SECRET = ""
+# Windows only — cpal ASIO feature: LLVM (libclang) required; Steinberg ASIO SDK optional
+# (asio-sys downloads it when CPAL_ASIO_DIR is unset).
+# LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+# CPAL_ASIO_DIR = 'C:\path\to\ASIOSDK'

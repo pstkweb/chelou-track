@@ -6,6 +6,7 @@ import Chip from '@/components/atoms/Chip';
 import IconButton from '@/components/atoms/IconButton';
 import WindowControls from '@/components/atoms/WindowControls';
 import Breadcrumb from '@/components/molecules/Breadcrumb';
+import GuitarControl from '@/components/organisms/GuitarControl';
 import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 import { PROVIDERS } from '@/lib/providers';
 import type { Provider } from '@/types/model';
@@ -37,6 +38,7 @@ export default function TitleBar({ connectedProvider, onLogout }: TitleBarProps)
       </div>
       {breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
       <div className="tb-spacer" />
+      <GuitarControl />
       {connectedProvider && (
         <>
           <Chip className="h-6 text-xs">

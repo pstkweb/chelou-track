@@ -64,6 +64,10 @@ pub fn run() {
                 ),
             }
 
+            let audio_settings_path = app_dir.join("audio-settings.json");
+            let audio_settings = chelou_audio_core::settings::load_settings(&audio_settings_path);
+            let audio = audio::start_engine(&audio_settings);
+
             let mut auth = auth::AuthStore::new();
             // Restore token from the credential store (normal path).
             let _ = auth.load_from_keychain();
@@ -75,10 +79,12 @@ pub fn run() {
                 url_cache: Mutex::new(HashMap::new()),
                 client_cache: Mutex::new(None),
                 media_token: cfg!(target_os = "linux").then(chelou_providers::random_token),
-                audio: chelou_audio_engine::start()
-                    .inspect_err(|e| eprintln!("audio : sortie indisponible au démarrage : {e:#}"))
-                    .ok(),
+                audio,
+                audio_settings: Mutex::new(audio_settings),
+                audio_settings_path,
             });
+
+            audio::open_saved_card(app.handle());
 
             #[cfg(target_os = "linux")]
             media_server::spawn(app.handle().clone());
@@ -107,6 +113,14 @@ pub fn run() {
             audio::backing_seek,
             audio::backing_set_volume,
             audio::backing_status,
+            audio::audio_devices,
+            audio::audio_settings,
+            audio::audio_configure,
+            audio::audio_set_enabled,
+            audio::guitar_set_fader,
+            audio::guitar_set_muted,
+            audio::audio_reset_xruns,
+            audio::audio_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
