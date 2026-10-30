@@ -156,8 +156,25 @@ export async function backingSeek(ms: number): Promise<void> {
 }
 
 /** Gain linéaire 0-1. */
-export async function backingSetVolume(gain: number): Promise<void> {
-  await invoke('backing_set_volume', { gain });
+/** Grille du métronome du track en cours (le moteur synthétise le clic) ; null : tempo inconnu. */
+export interface MetronomeParams {
+  bpm: number;
+  anchorMs: number;
+  beatsPerBar: number;
+}
+
+export async function backingSetMetronome(params: MetronomeParams | null): Promise<void> {
+  await invoke('backing_set_metronome', { params });
+}
+
+/** Voie Backing du mixer (0-100, 80 = 0 dB), persistée. */
+export async function mixSetBacking(fader: number, muted: boolean): Promise<void> {
+  await invoke('mix_set_backing', { fader, muted });
+}
+
+/** Voie Clic du mixer ; coupée = métronome éteint. */
+export async function mixSetClick(fader: number, muted: boolean): Promise<void> {
+  await invoke('mix_set_click', { fader, muted });
 }
 
 /**
@@ -228,6 +245,11 @@ export interface AudioSettings {
   scan: PluginInfo[] | null;
   /** Rechargement du plugin mémorisé en cours au démarrage (garde contre un plantage en boucle). */
   pluginLoading: boolean;
+  /** Mixer de la vue tablature (0-100, 80 = 0 dB) ; clic coupé = métronome éteint. */
+  backingFader: number;
+  backingMuted: boolean;
+  clickFader: number;
+  clickMuted: boolean;
 }
 
 export interface DeviceInfo {
@@ -255,6 +277,9 @@ export interface AudioStatus {
   /** Crêtes 0-1 depuis le statut précédent. */
   inputLevel: number;
   outputLevel: number;
+  /** Crêtes 0-1 des voies Backing et Clic. */
+  backingLevel: number;
+  clickLevel: number;
   guitarFader: number;
   guitarMuted: boolean;
   deviceName: string | null;

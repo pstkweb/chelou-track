@@ -32,6 +32,9 @@ export default function useAlphaTabPlayer(
   // Copie réactive de notatedBpmRef, pour les usages côté rendu (affichage, arguments de
   // hooks) — la ref seule ne déclenche pas de re-render quand le score se charge.
   const [notatedBpm, setNotatedBpm] = useState(120);
+  // Copie réactive de beatsPerBarRef : la grille du métronome doit être renvoyée au moteur quand
+  // la partition se charge, même si son tempo vaut le défaut (120) et ne change donc rien.
+  const [beatsPerBar, setBeatsPerBar] = useState(4);
   const scoreLoadedRef = useRef<Promise<void>>(new Promise(() => {}));
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
   // Renseignés par l'appelant (TabScreen) à chaque changement de backing track — lus par
@@ -42,7 +45,6 @@ export default function useAlphaTabPlayer(
   // (durée du track chargé) via cette ref plutôt que via la closure du premier rendu.
   const engineRef = useRef(engine);
   engineRef.current = engine;
-  const volumeRef = useRef(1);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs stables, lues une fois au montage
   useEffect(() => {
@@ -89,6 +91,7 @@ export default function useAlphaTabPlayer(
     scoreLoadedRef.current.catch(() => {});
     instance.scoreLoaded.on((score) => {
       beatsPerBarRef.current = score.masterBars[0]?.timeSignatureNumerator ?? 4;
+      setBeatsPerBar(beatsPerBarRef.current);
       notatedBpmRef.current = score.tempo || 120;
       setNotatedBpm(score.tempo || 120);
       resolveScoreLoaded();
@@ -121,13 +124,11 @@ export default function useAlphaTabPlayer(
           return 1;
         },
         set playbackRate(_value) {},
+        // Volume réglé par le mixer de la vue (moteur natif), pas par AlphaTab.
         get masterVolume() {
-          return volumeRef.current;
+          return 1;
         },
-        set masterVolume(value) {
-          volumeRef.current = value;
-          engineRef.current.setVolume(value);
-        },
+        set masterVolume(_value) {},
         seekTo(time) {
           const trackBpm = trackBpmRef.current;
           const leadInMs = leadInMsRef.current;
@@ -174,6 +175,7 @@ export default function useAlphaTabPlayer(
   return {
     alphaTabRef,
     beatsPerBarRef,
+    beatsPerBar,
     notatedBpmRef,
     notatedBpm,
     scoreLoadedRef,

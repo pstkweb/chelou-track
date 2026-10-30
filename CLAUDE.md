@@ -52,7 +52,8 @@ npx tsc --noEmit
 - **AlphaTab** (`@coderline/alphatab@1.8.4`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
 - **Moteur audio natif Rust** (`cpal` + `symphonia` + `rubato`, sous-crates `chelou-audio-core`/`chelou-audio-engine`) pour la lecture des backing tracks : téléchargés et décodés en entier avant lecture, lus à vitesse 1, détection du silence de tête au décodage. Sans carte configurée : sortie par défaut du système ; carte choisie : duplex (ASIO/WASAPI sur Windows, CoreAudio, ALSA) avec la guitare passée dans un plugin d'ampli VST3 (sinon en son direct).
-- **Hôte VST3** (`vst3` + `libloading`, sous-crate `chelou-vst3-host`) : un seul plugin sur la voie guitare, chargé sur le thread principal, interface native dans une fenêtre Win32 (Windows seulement pour l'instant). Le métronome reste un `AudioContext` côté WebView (en attendant son passage dans le moteur).
+- **Hôte VST3** (`vst3` + `libloading`, sous-crate `chelou-vst3-host`) : un seul plugin sur la voie guitare, chargé sur le thread principal, interface native dans une fenêtre Win32 (Windows seulement pour l'instant). Son réglé dans le plugin mémorisé (`audio/plugin-state.bin`).
+- **Métronome natif** : clic synthétisé par le moteur sur la position du lecteur (exact à l'échantillon) ; mixer à 3 voies (Backing, Guitare, Clic) dans la vue tablature, réglages persistés. Plus d'`AudioContext` côté WebView.
 - **reqwest** côté Rust pour les appels aux providers + streaming Range.
 - **keyring-core** pour le token du provider connecté (store par OS — `keyring-dpapi-store` maison sur Windows, Keychain/Secret Service natifs ailleurs).
 
@@ -93,7 +94,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/stream/mod.rs` | Handler `stream://{kind}/{provider}/{fileId}` : parse l'URI, résout le client via le registre, forward le header `Range` |
 | `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
-| `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek/set_volume) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) ; carte son : `audio_devices`, `audio_settings`, `audio_configure`, `audio_set_enabled`, `guitar_set_fader`/`guitar_set_muted`, `audio_reset_xruns`, `audio_status` (~30 Hz, permanent) ; réglages lus au démarrage depuis `audio/settings.json` (hors de l'app dir, où chaque `.json` est un manifeste) — cf. ARCHITECTURE.md §7, §9 |
+| `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek, `backing_set_metronome` : grille du clic) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) ; carte son : `audio_devices`, `audio_settings`, `audio_configure`, `audio_set_enabled`, `guitar_set_fader`/`guitar_set_muted`, `audio_reset_xruns`, `audio_status` (~30 Hz, permanent, crêtes des 4 voies) ; mixer : `mix_set_backing`/`mix_set_click` (persistés) ; réglages lus au démarrage depuis `audio/settings.json` (hors de l'app dir, où chaque `.json` est un manifeste) — cf. ARCHITECTURE.md §7, §9 |
 | `src/plugin/mod.rs` | Plugin d'ampli VST3 : instance et interface vivent sur le **thread principal** (`thread_local!`, `on_main`) ; commandes `plugin_folders`/`plugin_add_folder`/`plugin_remove_folder`/`plugin_scan`/`plugin_load` (par identifiant du dernier scan, jamais par chemin)/`plugin_unload`/`plugin_open_editor` ; rechargement au démarrage et après un changement de fréquence ; démontage ordonné à la sortie (`RunEvent::Exit`) ; `probe_main` = mode `--vst3-probe <bundle>` du binaire (`main.rs`) |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
@@ -121,11 +122,14 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | Fichier | Rôle |
 |---|---|
 | `src/decode.rs` | `decode_stereo` (wav/mp3/flac → stéréo f32 entrelacé, paquets corrompus sautés) + `resample` (fréquence de la sortie, durée conservée) |
-| `src/player.rs` | `BackingPlayer` (côté callback audio : aucune allocation/verrou/libération) + `PlayerControl` (ordres par file lock-free, statut par atomiques, tracks remplacés libérés hors thread audio, `load` refuse un track rééchantillonné pour une autre fréquence) + `LoadGeneration` (un chargement périmé ne remplace pas le track en place) |
+| `src/player.rs` | `BackingPlayer` (côté callback audio : aucune allocation/verrou/libération ; mixe aussi le clic du métronome sur sa position, volumes lus dans `MixControl`) + `PlayerControl` (ordres par file lock-free, statut par atomiques, tracks remplacés libérés hors thread audio, `load` refuse un track rééchantillonné pour une autre fréquence) + `LoadGeneration` (un chargement périmé ne remplace pas le track en place) |
 | `src/silence.rs` | `scan_leading_silence` : fin du silence de tête (pic par fenêtre, plancher au percentile bas) |
 | `src/gain.rs` | `GainRamp` (rampe linéaire de 256 frames, indépendante du découpage en blocs) + `fader_gain` (fader 0-100, 80 = 0 dB → gain `(v/80)²`) |
 | `src/guitar.rs` | `GuitarLane` (callback : entrée mono passée dans l'effet `GuitarFx` s'il y en a un, sinon dupliquée en stéréo, × gain en rampe, crêtes en atomiques ; `install_fx` refuse un effet préparé pour une autre fréquence que celle des flux, `set_stream_rate` retire l'effet quand elle change, `take_fx`) + `GuitarControl` (volume, mute, lecture des crêtes) |
 | `src/settings.rs` | `AudioSettings`/`DuplexConfig` (miroir de `lib/ipc.ts` ; plugin choisi, dossiers VST3, dernier scan), `load_settings`/`save_settings` (écriture atomique, `schemaVersion`), `latency_ms` (buffers + latence plugin), `explain_open_error` (pilote ASIO occupé) |
+| `src/metronome.rs` | `ClickSamples` (clic pré-calculé : portage de `playWoodTick`, biquads RBJ, bruit déterministe) + `Metronome` (clics mixés à l'échantillon près sur la position du lecteur, coupés net par un seek ou une pause) |
+| `src/mix.rs` | `MixControl` : volumes/mutes Backing et Clic, grille du métronome, crêtes — atomiques partagés par le moteur et chaque `BackingPlayer` (survit aux lecteurs recréés) |
+| `src/plugin_state.rs` | Fichier du son du plugin (`audio/plugin-state.bin` : `CTPS`, version, id du plugin, état) : écriture atomique, état d'un autre plugin ignoré |
 | `src/plugins.rs` | Scan VST3 sans rien charger : `parse_module_info` (JSON5), `is_listed` (classes audio, instruments purs exclus), `find_bundles`, `binary_path` par OS, `standard_vst3_folders`, `dedupe` ; `PluginInfo` (désigné par `id` = CID) |
 
 **`src-tauri/crates/audio-engine/`** (sous-crate `chelou-audio-engine` — `cpal`, donc ALSA sur Linux : hors de la commande de test canonique, ses tests ne tournent qu'en local via `cargo test -p chelou-audio-engine`)
@@ -167,6 +171,8 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | `components/organisms/GuitarControl.tsx` | Barre de titre : état de la carte (« Configurer l'audio », « Audio arrêté », « Audio : erreur ») ou mute + vumètre guitare + popover (plugin et son interface, volume) |
 | `components/templates/AudioSettings.tsx` | Tiroir des réglages audio : état de la carte, pilote, carte (WASAPI : entrée et sortie séparées), entrée guitare, sortie, fréquence, buffer, latence, coupures |
 | `components/molecules/LevelMeter.tsx` | Vumètre animé par `requestAnimationFrame`, hors rendu React |
+| `components/organisms/TabMixer.tsx` | Mixer de la vue tablature (maquette) : bouton « Mixer » (mini-vumètres, pastille), tranches Backing / Guitare / Clic (fader vertical, vumètre, dB, mute, action) |
+| `lib/metronome-grid.ts` | `metronomeParams` : grille du clic envoyée au moteur (ancre = début du count-in, 0 si lead-in inconnu ; testé vitest) |
 | `components/organisms/PluginSection.tsx` | Section « Plugin d'ampli » des réglages : plugin actif (interface, retrait), bandeau « introuvable », scan et liste des VST3, dossiers scannés |
 | `lib/lead-in.ts` | `leadInFromSilence` : lead-in à partir du silence détecté par le moteur, refusé si les infos se rapportent à un autre track (testé vitest) |
 | `components/organisms/VideoPlayer.tsx` | `<video>` + fallback transcodé automatique sur erreur de décodage |

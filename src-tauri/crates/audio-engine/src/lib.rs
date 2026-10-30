@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use chelou_audio_core::guitar::{guitar_lane, GuitarControl, GuitarFx, GuitarLane};
 use chelou_audio_core::input::InputFeed;
+use chelou_audio_core::mix::{mix_state, MixControl};
 use chelou_audio_core::player::{backing_player, BackingPlayer, PlayerControl};
 use chelou_audio_core::settings::{explain_open_error, DuplexConfig};
 use chelou_audio_core::MAX_BLOCK;
@@ -67,6 +68,8 @@ enum Event {
 
 struct Inner {
     control: Mutex<PlayerControl>,
+    /// Volumes du backing et du clic, grille du métronome : survivent aux lecteurs recréés.
+    mix: MixControl,
     guitar: Mutex<GuitarControl>,
     /// Voie guitare jouée par le callback de sortie (cf. `SharedPlayer`) ; `Engine::install_fx` y
     /// installe le plugin.
@@ -95,6 +98,11 @@ impl Engine {
 
     pub fn backing(&self) -> MutexGuard<'_, PlayerControl> {
         self.inner.control.lock().unwrap()
+    }
+
+    /// Mix de la vue tablature (backing, clic, grille du métronome) et crêtes de ces voies.
+    pub fn mix(&self) -> &MixControl {
+        &self.inner.mix
     }
 
     pub fn guitar(&self) -> MutexGuard<'_, GuitarControl> {
@@ -222,10 +230,12 @@ struct Runner {
 
 fn engine_thread(config: Option<DuplexConfig>, ready: mpsc::Sender<Result<Arc<Inner>>>) {
     let (events_tx, events_rx) = mpsc::channel::<Event>();
-    let (control, player) = backing_player(0);
+    let mix = mix_state();
+    let (control, player) = backing_player(0, &mix);
     let (guitar, lane) = guitar_lane();
     let inner = Arc::new(Inner {
         control: Mutex::new(control),
+        mix,
         guitar: Mutex::new(guitar),
         lane: Arc::new(Mutex::new(lane)),
         fx_cleared_at: AtomicU32::new(0),
@@ -386,7 +396,7 @@ impl Runner {
         if rate == self.rate {
             return (None, self.player.clone());
         }
-        let (control, player) = backing_player(rate);
+        let (control, player) = backing_player(rate, &self.inner.mix);
         (Some(control), Arc::new(Mutex::new(player)))
     }
 

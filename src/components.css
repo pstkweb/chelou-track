@@ -331,6 +331,27 @@ input.search:focus {
   opacity: 0;
 }
 
+/* Vumètre vertical (mixer) : remplissage de bas en haut */
+.lvl-v {
+  background: linear-gradient(0deg, var(--done) 0 64%, var(--warn) 64% 86%, var(--danger) 86%);
+}
+
+.lvl-v::after {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 calc(var(--seg) - 1px),
+    var(--bg-2) calc(var(--seg) - 1px) var(--seg)
+  );
+}
+
+.lvl-v .lvl-peak {
+  top: auto;
+  right: 0;
+  left: 0;
+  width: auto;
+  height: 2px;
+}
+
 .lvl-dim {
   filter: saturate(0);
   opacity: 0.45;
@@ -376,6 +397,23 @@ input.search:focus {
   background: var(--text);
   border: 2px solid var(--bg-2);
   box-shadow: 0 0 0 1px var(--border-2);
+}
+
+/* Fader vertical (tranches du mixer) : 0 en bas */
+.fader-v {
+  @apply h-full w-4;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+.fader-v::-webkit-slider-runnable-track {
+  width: 3px;
+  height: 100%;
+}
+
+.fader-v::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -4.5px;
 }
 
 .fader:focus-visible {

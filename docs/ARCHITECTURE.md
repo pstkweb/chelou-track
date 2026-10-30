@@ -28,8 +28,8 @@ joué (§7) — un ralentissement du provider ne doit jamais devenir une coupure
   la sortie. Le track est lu à vitesse 1 : c'est lui qui donne le tempo. Une fois une carte son
   choisie, le moteur l'ouvre en **duplex** (ASIO ou WASAPI sur Windows, CoreAudio, ALSA) et
   mixe la guitare — passée dans **un plugin d'ampli VST3** choisi par l'utilisateur, sinon en
-  son direct — avec le backing track. Le métronome reste pour l'instant un `AudioContext` côté
-  WebView, déclenché par la position du moteur.
+  son direct — avec le backing track et le **clic du métronome, synthétisé par le moteur** à
+  l'échantillon près sur sa propre position. Plus aucun `AudioContext` dans la vue synchro.
 - **Hôte VST3 : `chelou-vst3-host`** — bindings `vst3` (+ classes COM `com-scrape-types`) et
   `libloading`, sans SDK C++ ni CMake (voie A du spike de dérisquage, §7).
 
@@ -233,9 +233,14 @@ puis **pré-chauffé** (quelques `process` sur du silence : le premier `process`
 ~10 ms) avant d'être branché. Flux rouverts à une autre fréquence : la voie retire l'effet
 (flux fermés, il n'est jamais joué à la mauvaise fréquence) et l'app le recharge à la nouvelle,
 avec ses réglages ; un plugin préparé pendant qu'une autre réouverture changeait la fréquence
-est refusé par la voie et rechargé. Un chargement raté laisse l'ancien plugin en place ; un
-plugin qui a fait planter l'app en se rechargeant au démarrage n'est pas rechargé au lancement
-suivant (marqueur `pluginLoading`) (état composant + contrôleur, gardé en mémoire). Latence affichée = 2 ×
+est refusé par la voie et rechargé (son état composant + contrôleur est gardé en mémoire pour
+ces rechargements). Un chargement raté laisse l'ancien plugin en place ; un plugin qui a fait
+planter l'app en se rechargeant au démarrage n'est pas rechargé au lancement suivant (marqueur
+`pluginLoading`). **Son du plugin mémorisé** : l'état est enregistré dans
+`audio/plugin-state.bin` (avec l'identifiant du plugin : l'état d'un autre plugin n'est jamais
+appliqué) quand un réglage a changé (drapeau levé par `performEdit`/`restartComponent`, vérifié
+toutes les 2 s sur le thread principal), quand son interface se ferme et à la sortie de l'app ;
+il est rechargé avec le plugin. Latence affichée = 2 ×
 buffer + latence du plugin. **Scan** à la main uniquement : dossiers standard de l'OS + dossiers
 ajoutés ; `Contents/Resources/moduleinfo.json` (JSON5) lu sans charger le binaire, sinon le
 bundle est chargé dans un **processus enfant** (le binaire de l'app relancé avec
@@ -294,9 +299,21 @@ Reste correct tant que le tempo est constant sur tout le fichier (hypothèse pos
 pas de tempo variable interne, cf. `syncPoints` abandonné en faveur de cette approche plus
 simple).
 
+**Métronome natif et mixer.** Le clic (portage de l'ancien `playWoodTick` : triangle à
+rampe de fréquence + bruit filtré, accent sur le premier temps de la mesure) est pré-calculé
+à la fréquence de la sortie puis mixé par le `BackingPlayer` sur sa propre position : temps `k`
+à `ancre + k × 60000 / bpm` ms, l'ancre étant le début du count-in (`countInStartMs`, ou 0 tant
+que le lead-in est inconnu) — exact à l'échantillon, quel que soit le découpage des callbacks.
+Le WebView n'envoie que la grille (`backing_set_metronome`) quand le tempo, le lead-in ou la
+mesure changent. Mixer de la vue tablature (`TabMixer`) : voies Backing, Guitare et Clic, fader
+0-100 (80 = 0 dB), mute (couper le clic éteint le métronome), vumètre par voie ; réglages
+globaux et persistés, dans un état de mix partagé (`MixControl`) qui survit aux lecteurs
+recréés à une autre fréquence.
+
 **Branchement AlphaTab :** mode média externe (`PlayerMode.EnabledExternalMedia`), un
-`IExternalMediaHandler` qui délègue au moteur (`play`/`pause`/`masterVolume` → commandes
-`backing_*`, `backingTrackDuration` = durée du track décodé, `playbackRate` fixé à 1).
+`IExternalMediaHandler` qui délègue au moteur (`play`/`pause` → commandes `backing_*`,
+`backingTrackDuration` = durée du track décodé, `playbackRate` fixé à 1, `masterVolume` ignoré :
+le volume est celui du mixer).
 `seekTo(time)` applique la transformation inverse : `backingSeek(time / scale + leadInMs)`. **⚠️ Les signatures exactes d'AlphaTab
 ont changé selon les versions — vérifier l'API contre la version réellement installée plutôt que
 de se fier à la mémoire.** Le modèle mental ci-dessus, lui, ne bouge pas.
@@ -370,9 +387,13 @@ interface FileRef { fileId: string; name: string; }
 - **Réglages audio** (`audio/settings.json` dans l'app dir — pas à sa racine, où chaque `.json` est
   un manifeste de méthode ; un ancien `audio-settings.json` y est déplacé —, `chelou_audio_core::settings`) :
   carte choisie (pilote, entrée/sortie, canal, fréquence, buffer), carte arrêtée ou non, volume
-  et mute de la guitare, plugin d'ampli choisi, dossiers VST3 ajoutés, dernier résultat de scan
+  et mute de la guitare, volumes et mutes du backing et du clic, plugin d'ampli choisi, dossiers
+  VST3 ajoutés, dernier résultat de scan
   (champs ajoutés sans changer `schemaVersion` : absents → valeurs par défaut). Même politique que le manifeste : écriture atomique, `schemaVersion`,
   fichier absent, illisible ou plus récent → réglages par défaut (sortie seule) sans le modifier.
+- **Son du plugin d'ampli** (`audio/plugin-state.bin`, `chelou_audio_core::plugin_state`) :
+  `CTPS`, version, identifiant du plugin, état VST3 ; écriture atomique ; fichier d'un autre
+  plugin, tronqué ou d'une autre version → ignoré (réglages par défaut du plugin).
 
 ## 10. Section documents (séparée de la synchro)
 

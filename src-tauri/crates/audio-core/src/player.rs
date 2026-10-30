@@ -1,13 +1,16 @@
 // Lecteur de backing track côté temps réel. `BackingPlayer::render` tourne dans le callback
 // audio : aucune allocation, aucun verrou, aucune libération (ARCHITECTURE.md §7). Les ordres
 // arrivent par une file lock-free ; un track remplacé repart par une seconde file pour être
-// libéré côté `PlayerControl`.
+// libéré côté `PlayerControl`. Le clic du métronome est mixé ici, sur la position du lecteur
+// (exact à l'échantillon) ; volumes et grille viennent de l'état de mix partagé (`MixControl`).
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::Arc;
 
 use crate::decode::Pcm;
 use crate::gain::GainRamp;
+use crate::metronome::{ClickSamples, Metronome};
+use crate::mix::MixControl;
 
 enum Command {
     Load(Arc<Pcm>),
@@ -15,7 +18,6 @@ enum Command {
     Play,
     Pause,
     Seek(u64),
-    Gain(f32),
 }
 
 #[derive(Default)]
@@ -78,9 +80,14 @@ pub struct BackingPlayer {
     position: usize,
     playing: bool,
     gain: GainRamp,
+    mix: MixControl,
+    metronome: Metronome,
+    sample_rate: u32,
 }
 
-pub fn backing_player(sample_rate: u32) -> (PlayerControl, BackingPlayer) {
+/// Lecteur pour une sortie à `sample_rate`, réglé par `mix` (clics pré-calculés ici, hors
+/// thread audio).
+pub fn backing_player(sample_rate: u32, mix: &MixControl) -> (PlayerControl, BackingPlayer) {
     let (cmd_tx, cmd_rx) = rtrb::RingBuffer::new(64);
     let (gc_tx, gc_rx) = rtrb::RingBuffer::new(64);
     let shared = Arc::new(Shared::default());
@@ -98,7 +105,10 @@ pub fn backing_player(sample_rate: u32) -> (PlayerControl, BackingPlayer) {
             track: None,
             position: 0,
             playing: false,
-            gain: GainRamp::new(1.0),
+            gain: GainRamp::new(mix.backing_gain()),
+            mix: mix.clone(),
+            metronome: Metronome::new(ClickSamples::new(sample_rate)),
+            sample_rate,
         },
     )
 }
@@ -134,10 +144,6 @@ impl PlayerControl {
     pub fn seek_ms(&mut self, ms: f64) {
         let frames = (ms.max(0.0) * self.sample_rate as f64 / 1000.0).round() as u64;
         self.send(Command::Seek(frames));
-    }
-
-    pub fn set_gain(&mut self, gain: f32) {
-        self.send(Command::Gain(gain.clamp(0.0, 4.0)));
     }
 
     pub fn status(&self) -> PlayerStatus {
@@ -204,14 +210,16 @@ impl BackingPlayer {
                     self.position = (frames as usize).min(len);
                     self.shared.ended.store(false, Relaxed);
                 }
-                Command::Gain(g) => self.gain.set_target(g),
             }
         }
     }
 
-    /// Ajoute le track dans `out` (stéréo entrelacé) — d'autres voies y seront mixées.
+    /// Ajoute le track et le clic dans `out` (stéréo entrelacé) — d'autres voies y sont mixées.
     pub fn render(&mut self, out: &mut [f32]) {
         self.apply_commands();
+        self.gain.set_target(self.mix.backing_gain());
+        let start = self.position;
+        let mut backing_peak = 0.0f32;
         if let (true, Some(track)) = (self.playing, self.track.as_ref()) {
             let len = track.frames();
             for frame in out.as_chunks_mut::<2>().0 {
@@ -221,13 +229,33 @@ impl BackingPlayer {
                     break;
                 }
                 let gain = self.gain.tick();
-                frame[0] += track.samples[2 * self.position] * gain;
-                frame[1] += track.samples[2 * self.position + 1] * gain;
+                let (l, r) = (
+                    track.samples[2 * self.position] * gain,
+                    track.samples[2 * self.position + 1] * gain,
+                );
+                frame[0] += l;
+                frame[1] += r;
+                backing_peak = backing_peak.max(l.abs()).max(r.abs());
                 self.position += 1;
             }
         } else {
             self.gain.settle();
         }
+        // Clic sur les frames réellement jouées (aucune après la fin du track ni en pause).
+        let played = self.position - start;
+        let params = if played > 0 {
+            self.mix.metronome()
+        } else {
+            None
+        };
+        let click_peak = self.metronome.render(
+            &mut out[..played * 2],
+            start as u64,
+            self.sample_rate,
+            params,
+            self.mix.click_gain(),
+        );
+        self.mix.publish_peaks(backing_peak, click_peak);
         self.shared.position.store(self.position as u64, Relaxed);
         self.shared.playing.store(self.playing, Relaxed);
         self.shared.loaded.store(self.track.is_some(), Relaxed);
@@ -238,9 +266,15 @@ impl BackingPlayer {
 mod tests {
     use super::*;
     use crate::decode::Pcm;
+    use crate::metronome::MetronomeParams;
+    use crate::mix::{mix_state, MixControl};
     use std::sync::Arc;
 
     const SR: u32 = 1000; // 1 frame = 1 ms
+
+    fn player(rate: u32) -> (PlayerControl, BackingPlayer) {
+        backing_player(rate, &mix_state())
+    }
 
     /// Track dont la frame i vaut i/1000 sur les deux canaux.
     fn ramp(frames: usize) -> Arc<Pcm> {
@@ -259,7 +293,7 @@ mod tests {
 
     #[test]
     fn render_paused_adds_nothing() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(1000));
         let out = render(&mut player, 128, 0.0);
         assert!(out.iter().all(|&s| s == 0.0));
@@ -268,7 +302,7 @@ mod tests {
 
     #[test]
     fn render_plays_and_advances() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(1000));
         ctl.play();
         let out = render(&mut player, 128, 0.0);
@@ -280,7 +314,7 @@ mod tests {
 
     #[test]
     fn render_adds_into_buffer() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(1000));
         ctl.play();
         let out = render(&mut player, 16, 0.25);
@@ -289,7 +323,7 @@ mod tests {
 
     #[test]
     fn seek_moves_position() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(1000));
         ctl.seek_ms(500.0);
         ctl.play();
@@ -300,7 +334,7 @@ mod tests {
 
     #[test]
     fn seek_is_clamped_to_track() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(100));
         ctl.seek_ms(10_000.0);
         render(&mut player, 1, 0.0);
@@ -309,7 +343,7 @@ mod tests {
 
     #[test]
     fn end_of_track_stops_and_flags_ended() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(100));
         ctl.play();
         let out = render(&mut player, 128, 0.0);
@@ -323,7 +357,7 @@ mod tests {
 
     #[test]
     fn play_after_end_restarts_from_zero() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         ctl.load(ramp(100));
         ctl.play();
         render(&mut player, 128, 0.0);
@@ -335,7 +369,7 @@ mod tests {
 
     #[test]
     fn load_replaces_track_and_resets() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         let first = ramp(1000);
         ctl.load(first.clone());
         ctl.play();
@@ -352,7 +386,7 @@ mod tests {
 
     #[test]
     fn unload_releases_track() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         let first = ramp(10);
         ctl.load(first.clone());
         render(&mut player, 1, 0.0);
@@ -365,14 +399,15 @@ mod tests {
 
     #[test]
     fn gain_ramp_is_linear_over_128_frame_blocks() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let mix = mix_state();
+        let (mut ctl, mut player) = backing_player(SR, &mix);
         ctl.load(Arc::new(Pcm {
             samples: vec![1.0; 2000],
             sample_rate: SR,
         }));
         ctl.play();
         render(&mut player, 16, 0.0);
-        ctl.set_gain(0.0);
+        mix.set_backing(0.0, false);
         let first = render(&mut player, 128, 0.0);
         let second = render(&mut player, 128, 0.0);
         assert!(
@@ -385,7 +420,7 @@ mod tests {
 
     #[test]
     fn load_rejects_other_sample_rate() {
-        let (mut ctl, mut player) = backing_player(48000);
+        let (mut ctl, mut player) = player(48000);
         let wrong = Arc::new(Pcm {
             samples: vec![0.0; 20],
             sample_rate: 44100,
@@ -410,9 +445,57 @@ mod tests {
         assert!(generation.is_current(second));
     }
 
+    fn with_click(mix: &MixControl) -> (PlayerControl, BackingPlayer) {
+        mix.set_metronome(Some(MetronomeParams {
+            bpm: 120.0,
+            anchor_ms: 0.0,
+            beats_per_bar: 4,
+        }));
+        let (mut ctl, player) = backing_player(48000, mix);
+        ctl.load(Arc::new(Pcm {
+            samples: vec![0.0; 2 * 48000],
+            sample_rate: 48000,
+        }));
+        (ctl, player)
+    }
+
+    #[test]
+    fn click_follows_the_player_position() {
+        let mix = mix_state();
+        let (mut ctl, mut player) = with_click(&mix);
+        ctl.seek_ms(23000.0 * 1000.0 / 48000.0);
+        ctl.play();
+        let out = render(&mut player, 1500, 0.0);
+        // Temps 1 (120 bpm) à la frame 24000 du track = frame 1000 du bloc.
+        assert_eq!(out[2 * 999], 0.0);
+        assert!(out[2 * 1000] != 0.0 || out[2 * 1001] != 0.0);
+        assert!(out[..2 * 999].iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn click_stops_at_track_end() {
+        let mix = mix_state();
+        let (mut ctl, mut player) = with_click(&mix);
+        ctl.play();
+        // Une frame de plus que le track : la fin est constatée sur la frame qui suit.
+        render(&mut player, 48001, 0.0);
+        assert!(ctl.status().ended);
+        // Track fini : plus de clic, même si la position retombe sur un temps.
+        let out = render(&mut player, 48000, 0.0);
+        assert!(out.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn no_click_while_paused() {
+        let mix = mix_state();
+        let (_ctl, mut player) = with_click(&mix);
+        let out = render(&mut player, 1000, 0.0);
+        assert!(out.iter().all(|&x| x == 0.0));
+    }
+
     #[test]
     fn status_reports_duration_and_loaded() {
-        let (mut ctl, mut player) = backing_player(SR);
+        let (mut ctl, mut player) = player(SR);
         assert!(!ctl.status().loaded);
         ctl.load(ramp(250));
         render(&mut player, 1, 0.0);

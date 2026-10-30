@@ -1,7 +1,6 @@
 import {
   ChevronLeft,
   LoaderCircle,
-  Metronome,
   Music,
   Pause,
   Play,
@@ -9,7 +8,6 @@ import {
   SkipBack,
   SkipForward,
   Video,
-  Volume2,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigation } from '@/contexts/NavigationContext';
@@ -17,15 +15,15 @@ import useAlphaTabPlayer from '@/hooks/useAlphaTabPlayer';
 import useBackingEngine from '@/hooks/useBackingEngine';
 import useBackingTrackPlayback from '@/hooks/useBackingTrackPlayback';
 import useLeadInDetection from '@/hooks/useLeadInDetection';
-import useMetronome from '@/hooks/useMetronome';
 import cn from '@/lib/cn';
 import { type Chapter, searchSiblings } from '@/lib/method-view';
+import { metronomeParams } from '@/lib/metronome-grid';
 import type { BackingGroup, Lesson, Method, TabSet } from '@/types/model';
 import Button from '../atoms/Button';
 import Chip from '../atoms/Chip';
 import IconButton from '../atoms/IconButton';
-import MixSlider from '../molecules/MixSlider';
 import BackingTrackPicker from '../organisms/BackingTrackPicker';
+import TabMixer from '../organisms/TabMixer';
 
 type TabScreenProps = {
   chapter: Chapter;
@@ -86,13 +84,11 @@ function PlayButton({
 
 export default function TabScreen({ lesson, chapter, method, tab }: TabScreenProps) {
   const [loop, setLoop] = useState(false);
-  const [metro, setMetro] = useState(true);
   const [backingTrack, setBackingTrack] = useState<BackingGroup | undefined>(
     lesson.backingGroups[0] || undefined,
   );
   const [backingTrackSpeed, setBackingTrackSpeed] = useState(backingTrack?.tracks[0]);
   // Mix backing track / clic de métronome, 0-100 (échelle des sliders) — cf. wiring plus bas.
-  const [mix, setMix] = useState({ backing: 100, click: 100 });
 
   const tabElmt = useRef<HTMLDivElement>(null);
   const engine = useBackingEngine(method.source.provider, backingTrackSpeed?.audio.fileId);
@@ -102,6 +98,7 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   const {
     alphaTabRef,
     beatsPerBarRef,
+    beatsPerBar,
     notatedBpmRef,
     notatedBpm,
     scoreLoadedRef,
@@ -112,11 +109,6 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   // Certains backing tracks ont un BPM à 0 (tempo inconnu côté source) : on retombe alors
   // sur le tempo noté dans le fichier de tablature plutôt que de diviser par zéro partout.
   const effectiveBpm = backingTrackSpeed?.bpm || notatedBpm;
-  const { tick: tickMetronome, reset: resetMetronomeBeat } = useMetronome(
-    effectiveBpm,
-    metro,
-    mix.click / 100,
-  );
   const detectedLeadInMs = useLeadInDetection(
     method,
     lesson,
@@ -134,8 +126,6 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
     beatsPerBarRef,
     method,
     backingTrackSpeed,
-    tickMetronome,
-    resetMetronomeBeat,
   );
   // Résultat de la détection pour la session en cours, tant que la persistance Rust
   // (fire-and-forget) n'a pas fait revivre backingTrackSpeed.leadInMsOverride via un
@@ -143,13 +133,23 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
   // jusqu'au prochain redémarrage de l'app, cf. bug rapporté (pas de count-in, tout désynchro).
   const effectiveLeadInMs = backingTrackSpeed?.leadInMsOverride ?? detectedLeadInMs;
 
-  // Volume de la piste backing track (gain linéaire), envoyé au moteur — renvoyé aussi à chaque
-  // chargement : si la sortie change de fréquence, le moteur recrée son lecteur à gain 1 et le
-  // réglage serait perdu.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setVolume est un simple invoke
+  // Grille du métronome envoyée au moteur, qui joue le clic à l'échantillon près : renvoyée quand
+  // le tempo, le lead-in ou la mesure changent, après chaque chargement de track (engine.info :
+  // le moteur a pu changer de fréquence), et effacée en quittant la vue.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setMetronome est un simple invoke ; engine.info signale un track (re)chargé
   useEffect(() => {
-    engine.setVolume(mix.backing / 100);
-  }, [mix.backing, engine.info]);
+    engine.setMetronome(
+      metronomeParams(effectiveBpm, effectiveLeadInMs, method.defaultCountInBars, beatsPerBar),
+    );
+  }, [effectiveBpm, effectiveLeadInMs, method.defaultCountInBars, beatsPerBar, engine.info]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setMetronome est un simple invoke
+  useEffect(
+    () => () => {
+      engine.setMetronome(null);
+    },
+    [],
+  );
 
   // Tient à jour les refs que useAlphaTabPlayer.seekTo() lit pour convertir un seek (clic
   // sur la tablature) en position audio réelle — seekTo vit dans le hook et n'a pas accès
@@ -257,28 +257,10 @@ export default function TabScreen({ lesson, chapter, method, tab }: TabScreenPro
                   <RefreshCcw size={19} />
                 </IconButton>
               )}
-              <IconButton
-                onClick={() => setMetro((m) => !m)}
-                title="Métronome"
-                className={cn('bg-transparent text-fg3', metro && 'bg-chip! text-accent!')}
-              >
-                <Metronome size={19} />
-              </IconButton>
             </div>
 
-            <div className="flex items-center gap-4">
-              <MixSlider
-                label="Backing"
-                icon={Volume2}
-                value={mix.backing}
-                onChange={(v) => setMix((m) => ({ ...m, backing: v }))}
-              />
-              <MixSlider
-                label="Clic"
-                icon={Metronome}
-                value={mix.click}
-                onChange={(v) => setMix((m) => ({ ...m, click: v }))}
-              />
+            <div className="ml-auto">
+              <TabMixer />
             </div>
           </div>
         </div>

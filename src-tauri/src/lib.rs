@@ -75,7 +75,7 @@ pub fn run() {
 
             app.manage(AppState {
                 auth: Mutex::new(auth),
-                manifest: manifest::ManifestStore::new(app_dir),
+                manifest: manifest::ManifestStore::new(app_dir.clone()),
                 http: reqwest::Client::new(),
                 url_cache: Mutex::new(HashMap::new()),
                 client_cache: Mutex::new(None),
@@ -83,10 +83,12 @@ pub fn run() {
                 audio,
                 audio_settings: Mutex::new(audio_settings),
                 audio_settings_path,
+                plugin_state_path: chelou_audio_core::plugin_state::plugin_state_path(&app_dir),
                 plugin: Mutex::new(plugin::PluginStatus::default()),
             });
 
             audio::open_saved_card(app.handle());
+            plugin::start_state_saver(app.handle().clone());
 
             #[cfg(target_os = "linux")]
             media_server::spawn(app.handle().clone());
@@ -113,7 +115,9 @@ pub fn run() {
             audio::backing_play,
             audio::backing_pause,
             audio::backing_seek,
-            audio::backing_set_volume,
+            audio::backing_set_metronome,
+            audio::mix_set_backing,
+            audio::mix_set_click,
             audio::backing_status,
             audio::audio_devices,
             audio::audio_settings,

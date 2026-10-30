@@ -21,6 +21,8 @@ import {
   guitarSetFader,
   guitarSetMuted,
   type HostDevices,
+  mixSetBacking,
+  mixSetClick,
   type PluginFolders,
   pluginAddFolder,
   pluginFolders,
@@ -32,13 +34,14 @@ import {
   subscribeAudioStatus,
 } from '@/lib/ipc';
 
-export type GuitarLevels = { input: number; output: number };
+/** Crêtes du dernier statut : entrée et sortie guitare, voies Backing et Clic. */
+export type AudioLevels = { input: number; output: number; backing: number; click: number };
 
 interface AudioEngineValue {
   /** null tant que le premier statut n'est pas arrivé. */
   status: AudioStatus | null;
   /** Crêtes du dernier statut, lues hors React par les vumètres (pas de rendu à 30 Hz). */
-  levels: RefObject<GuitarLevels>;
+  levels: RefObject<AudioLevels>;
   settings: AudioSettings | null;
   devices: HostDevices[] | null;
   devicesLoading: boolean;
@@ -49,6 +52,9 @@ interface AudioEngineValue {
   setEnabled: (enabled: boolean) => void;
   setFader: (value: number) => void;
   setMuted: (muted: boolean) => void;
+  /** Voies Backing et Clic du mixer (clic coupé = métronome éteint). */
+  setBackingMix: (fader: number, muted: boolean) => void;
+  setClickMix: (fader: number, muted: boolean) => void;
   resetXruns: () => void;
   /** Dossiers VST3 (standard + ajoutés) ; null tant qu'ils ne sont pas lus. */
   folders: PluginFolders | null;
@@ -115,7 +121,7 @@ function useLatestSender<T>(send: (value: T) => Promise<void>) {
 
 export function AudioEngineProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AudioStatus | null>(null);
-  const levels = useRef<GuitarLevels>({ input: 0, output: 0 });
+  const levels = useRef<AudioLevels>({ input: 0, output: 0, backing: 0, click: 0 });
   const [settings, setSettings] = useState<AudioSettings | null>(null);
   const [devices, setDevices] = useState<HostDevices[] | null>(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
@@ -136,7 +142,12 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       }
     });
     subscribeAudioStatus((s) => {
-      levels.current = { input: s.inputLevel, output: s.outputLevel };
+      levels.current = {
+        input: s.inputLevel,
+        output: s.outputLevel,
+        backing: s.backingLevel,
+        click: s.clickLevel,
+      };
       setStatus((prev) => (sameStatus(prev, s) ? prev : s));
     }).then((unsub) => {
       if (cancelled) {
@@ -189,6 +200,12 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
 
   const sendFader = useLatestSender(guitarSetFader);
   const sendMuted = useLatestSender(guitarSetMuted);
+  const sendBacking = useLatestSender(
+    useCallback((v: { fader: number; muted: boolean }) => mixSetBacking(v.fader, v.muted), []),
+  );
+  const sendClick = useLatestSender(
+    useCallback((v: { fader: number; muted: boolean }) => mixSetClick(v.fader, v.muted), []),
+  );
 
   // Actions à identité stable : un composant qui en dépend dans un effet (le tiroir rafraîchit
   // l'inventaire à son ouverture) ne doit pas se relancer à chaque statut reçu.
@@ -206,6 +223,14 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       setMuted: (muted: boolean) => {
         setSettings((s) => (s ? { ...s, guitarMuted: muted } : s));
         sendMuted(muted);
+      },
+      setBackingMix: (fader: number, muted: boolean) => {
+        setSettings((s) => (s ? { ...s, backingFader: fader, backingMuted: muted } : s));
+        sendBacking({ fader, muted });
+      },
+      setClickMix: (fader: number, muted: boolean) => {
+        setSettings((s) => (s ? { ...s, clickFader: fader, clickMuted: muted } : s));
+        sendClick({ fader, muted });
       },
       resetXruns: () => {
         audioResetXruns();
@@ -245,7 +270,17 @@ export function AudioEngineProvider({ children }: { children: React.ReactNode })
       },
       closeSettings: () => setSettingsOpen(false),
     }),
-    [refreshDevices, reopen, sendFader, sendMuted, scanPlugins, refreshFolders, fail],
+    [
+      refreshDevices,
+      reopen,
+      sendFader,
+      sendMuted,
+      sendBacking,
+      sendClick,
+      scanPlugins,
+      refreshFolders,
+      fail,
+    ],
   );
 
   const value = useMemo<AudioEngineValue>(

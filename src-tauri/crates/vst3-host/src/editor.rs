@@ -1,5 +1,6 @@
 // Interface native du plugin dans une fenêtre de premier niveau (spec §5.6), créée et détruite
-// sur le thread principal. Pas de boucle de messages ici : celle de l'app (Tauri) pompe déjà les
+// sur le thread principal. Barre de titre Windows standard, aux couleurs de l'app : icône de
+// l'exécutable, barre sombre en thème sombre. Pas de boucle de messages ici : celle de l'app (Tauri) pompe déjà les
 // messages Win32 de ce thread.
 #![allow(non_snake_case)]
 
@@ -16,7 +17,7 @@ pub struct Editor {
 
 #[cfg(not(windows))]
 impl Editor {
-    pub fn open(_plugin: &Vst3Plugin, _title: &str) -> Result<Editor> {
+    pub fn open(_plugin: &Vst3Plugin, _title: &str, _dark: bool) -> Result<Editor> {
         anyhow::bail!("L'interface du plugin n'est disponible que sur Windows pour l'instant")
     }
 
@@ -37,12 +38,16 @@ mod win {
     use std::cell::Cell;
 
     use anyhow::{anyhow, bail, Result};
+    use std::sync::OnceLock;
     use vst3::Steinberg::Vst::IEditControllerTrait;
     use vst3::Steinberg::*;
     use vst3::{Class, ComPtr, ComRef, ComWrapper};
-    use windows::core::{w, PCWSTR};
+    use windows::core::{w, BOOL, PCWSTR};
+
     use windows::Win32::Foundation::*;
-    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+    use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW};
+    use windows::Win32::UI::Shell::ExtractIconExW;
     use windows::Win32::UI::WindowsAndMessaging::*;
 
     use super::Editor;
@@ -117,6 +122,62 @@ mod win {
         }
     }
 
+    /// Icônes (grande, petite) de l'exécutable de l'app, extraites une fois (handles bruts : vivent
+    /// jusqu'à la fin du processus).
+    fn app_icons() -> (isize, isize) {
+        static ICONS: OnceLock<(isize, isize)> = OnceLock::new();
+        *ICONS.get_or_init(|| {
+            let mut path = [0u16; 1024];
+            let mut large = HICON::default();
+            let mut small = HICON::default();
+            // SAFETY: tampon local ; `ExtractIconExW` écrit au plus une icône de chaque taille.
+            unsafe {
+                let len = GetModuleFileNameW(None, &mut path) as usize;
+                if len > 0 && len < path.len() {
+                    ExtractIconExW(
+                        PCWSTR(path.as_ptr()),
+                        0,
+                        Some(&mut large),
+                        Some(&mut small),
+                        1,
+                    );
+                }
+            }
+            (large.0 as isize, small.0 as isize)
+        })
+    }
+
+    /// Icône de l'app et barre de titre sombre (Windows 11 ; sans effet ailleurs).
+    fn style_frame(hwnd: HWND, dark: bool) {
+        let (large, small) = app_icons();
+        // SAFETY: messages et attribut DWM standard sur une fenêtre de ce thread.
+        unsafe {
+            if large != 0 {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_BIG as usize)),
+                    Some(LPARAM(large)),
+                );
+            }
+            if small != 0 {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(ICON_SMALL as usize)),
+                    Some(LPARAM(small)),
+                );
+            }
+            let value = BOOL::from(dark);
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &value as *const BOOL as *const _,
+                std::mem::size_of::<BOOL>() as u32,
+            );
+        }
+    }
+
     fn state(hwnd: HWND) -> *const ViewState {
         // SAFETY: lecture du pointeur rangé par `Editor::open` (0 après `WM_NCDESTROY`).
         unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const ViewState }
@@ -154,7 +215,8 @@ mod win {
     }
 
     impl Editor {
-        pub fn open(plugin: &Vst3Plugin, title: &str) -> Result<Editor> {
+        /// `dark` : thème sombre de l'app (barre de titre sombre).
+        pub fn open(plugin: &Vst3Plugin, title: &str, dark: bool) -> Result<Editor> {
             // SAFETY: API IPlugView + Win32, sur le thread principal (celui du plugin).
             unsafe {
                 let view_raw = plugin.controller().createView(Vst::ViewType::kEditor);
@@ -209,6 +271,7 @@ mod win {
                 }
                 st.attached.set(true);
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(st) as isize);
+                style_frame(hwnd, dark);
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 Ok(Editor { hwnd })
             }

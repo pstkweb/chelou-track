@@ -6,8 +6,9 @@ import {
   backingPause,
   backingPlay,
   backingSeek,
-  backingSetVolume,
+  backingSetMetronome,
   backingUnload,
+  type MetronomeParams,
   subscribeBackingStatus,
 } from '@/lib/ipc';
 import { createSerialQueue } from '@/lib/serial-queue';
@@ -113,7 +114,8 @@ export default function useBackingEngine(provider: Provider, fileId: string | un
     play: () => backingPlay(),
     pause: () => backingPause(),
     seek: (ms: number) => backingSeek(ms),
-    setVolume: (gain: number) => backingSetVolume(gain),
+    /** Grille du métronome du track (le clic est synthétisé par le moteur). */
+    setMetronome: (params: MetronomeParams | null) => backingSetMetronome(params),
     /** Un seul abonné : la boucle de synchro de la vue tablature. */
     onStatus: (cb: (s: BackingStatus) => void) => {
       onStatusRef.current = cb;

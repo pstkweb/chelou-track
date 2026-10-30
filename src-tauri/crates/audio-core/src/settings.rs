@@ -51,6 +51,11 @@ pub struct AudioSettings {
     /// ce plugin a fait planter l'app en se chargeant, il n'est pas rechargé (sinon l'app
     /// planterait à chaque lancement).
     pub plugin_loading: bool,
+    /// Mixer de la vue tablature (0-100, 80 = 0 dB) ; clic coupé = métronome éteint.
+    pub backing_fader: f32,
+    pub backing_muted: bool,
+    pub click_fader: f32,
+    pub click_muted: bool,
 }
 
 impl Default for AudioSettings {
@@ -65,6 +70,10 @@ impl Default for AudioSettings {
             vst3_folders: Vec::new(),
             scan: None,
             plugin_loading: false,
+            backing_fader: 80.0,
+            backing_muted: false,
+            click_fader: 80.0,
+            click_muted: false,
         }
     }
 }
@@ -230,6 +239,10 @@ mod tests {
             vst3_folders: vec![r"D:\Audio\VST3".into()],
             scan: Some(vec![amp()]),
             plugin_loading: true,
+            backing_fader: 70.0,
+            backing_muted: true,
+            click_fader: 60.0,
+            click_muted: true,
         };
         save_settings(&path, &s).unwrap();
         let json = std::fs::read_to_string(&path).unwrap();
@@ -261,6 +274,18 @@ mod tests {
         assert_eq!(s.plugin, None);
         assert_eq!(s.scan, None);
         assert!(s.vst3_folders.is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v1_file_without_mix_fields_loads() {
+        let path = temp_path();
+        std::fs::write(&path, r#"{"schemaVersion":1,"guitarFader":70}"#).unwrap();
+        let s = load_settings(&path);
+        assert_eq!(s.backing_fader, 80.0);
+        assert!(!s.backing_muted);
+        assert_eq!(s.click_fader, 80.0);
+        assert!(!s.click_muted);
         std::fs::remove_file(path).unwrap();
     }
 

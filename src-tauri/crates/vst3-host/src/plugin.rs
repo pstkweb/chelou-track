@@ -6,6 +6,7 @@
 
 use std::mem::ManuallyDrop;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Result};
@@ -104,6 +105,8 @@ pub struct Vst3Plugin {
     /// le plugin, qui ne doit alors être ni arrêté ni déchargé.
     rt_alive: Arc<()>,
     latency: u32,
+    /// Levé par l'interface du plugin (cf. `ComponentHandler::dirty`).
+    dirty: Arc<AtomicBool>,
 }
 
 impl Vst3Plugin {
@@ -128,8 +131,10 @@ impl Vst3Plugin {
         let host = ComWrapper::new(HostApp);
         let host_ctx = host.as_com_ref::<IHostApplication>().unwrap().as_ptr() as *mut FUnknown;
         let (prod, cons) = rtrb::RingBuffer::new(EDIT_QUEUE);
+        let dirty = Arc::new(AtomicBool::new(false));
         let handler = ComWrapper::new(ComponentHandler {
             edits: Mutex::new(prod),
+            dirty: dirty.clone(),
         });
         // Déclaré après le module : détruit avant lui en cas d'erreur.
         let mut undo = Undo::default();
@@ -262,8 +267,14 @@ impl Vst3Plugin {
                 rt: Some(rt),
                 rt_alive,
                 latency,
+                dirty,
             })
         }
+    }
+
+    /// Un réglage a changé depuis l'appel précédent (son état est à enregistrer).
+    pub fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, Ordering::Relaxed)
     }
 
     /// Latence ajoutée par le plugin, en échantillons.

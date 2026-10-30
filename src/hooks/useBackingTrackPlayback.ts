@@ -12,8 +12,6 @@ export default function useBackingTrackPlayback(
   beatsPerBarRef: RefObject<number>,
   method: Method,
   backingTrackSpeed: BackingTrack | undefined,
-  tickMetronome: (elapsedMs: number, anchorMs: number, beatsPerBar: number) => void,
-  resetMetronomeBeat: () => void,
 ) {
   const [playing, setPlaying] = useState(false);
   // undefined = overlay masqué ; 0 = "--" (lecture démarrée, count-in audio pas encore
@@ -33,7 +31,6 @@ export default function useBackingTrackPlayback(
   const resetPlayback = () => {
     stopPlayback();
     setCountIn(undefined);
-    resetMetronomeBeat();
     engine.seek(0);
 
     const player = alphaTabRef.current?.player;
@@ -62,10 +59,6 @@ export default function useBackingTrackPlayback(
 
   const onStarted = () => {
     alphaTabRef.current?.play();
-    // Le métronome ne tique que via onStatus (voir useMetronome) : ce reset garantit juste
-    // que le tout premier temps de cette reprise sonne, même si son index coïncide avec le
-    // dernier joué avant l'arrêt précédent.
-    resetMetronomeBeat();
   };
 
   const onStopped = () => {
@@ -111,8 +104,7 @@ export default function useBackingTrackPlayback(
     const leadInMs = leadInMsRef.current;
 
     if (!s.playing) {
-      // Seek pendant la pause : le curseur suit quand même la nouvelle position, sans
-      // métronome ni overlay.
+      // Seek pendant la pause : le curseur suit quand même la nouvelle position, sans overlay.
       setCountIn(undefined);
       output.updatePosition(pausedCursorMs(audioMs, leadInMs));
       return;
@@ -120,8 +112,7 @@ export default function useBackingTrackPlayback(
 
     if (leadInMs === undefined) {
       // Pas encore détecté/persisté : position brute, "--" affiché (la lecture a bel et bien
-      // commencé, sans timing de count-in connu), accent calé sur t=0 faute de mieux.
-      tickMetronome(audioMs, 0, beatsPerBarRef.current);
+      // commencé, sans timing de count-in connu).
       setCountIn(0);
       // updatePosition (pas tickPosition : son setter déclenche un vrai seek à chaque appel,
       // ce qui interrompt la lecture au lieu de se contenter de déplacer le curseur)
@@ -132,11 +123,8 @@ export default function useBackingTrackPlayback(
     const countInDurationMs =
       (method.defaultCountInBars * beatsPerBarRef.current * 60000) /
       (backingTrackSpeed?.bpm || notatedBpmRef.current);
+    // Le clic du métronome, lui, est joué par le moteur sur la même grille (cf. metronome-grid).
     const countInStartMs = leadInMs - countInDurationMs;
-    // Piloté par la position du moteur : reste synchronisé avec play/pause, seek et changement
-    // de piste. Ancré sur countInStartMs pour que l'accent tombe sur le premier vrai temps du
-    // count-in, pas sur un temps décalé par la durée du silence de tête.
-    tickMetronome(audioMs, countInStartMs, beatsPerBarRef.current);
 
     if (audioMs < countInStartMs) {
       // Encore dans le silence de tête : "--".

@@ -8,7 +8,8 @@
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use vst3::Steinberg::Vst::*;
 use vst3::Steinberg::*;
@@ -251,6 +252,8 @@ impl IBStreamTrait for MemStream {
 
 pub struct ComponentHandler {
     pub edits: Mutex<rtrb::Producer<(u32, f64)>>,
+    /// Levé à chaque réglage touché dans l'interface (ou preset chargé) : l'état est à enregistrer.
+    pub dirty: Arc<AtomicBool>,
 }
 impl Class for ComponentHandler {
     type Interfaces = (IComponentHandler,);
@@ -262,6 +265,7 @@ impl IComponentHandlerTrait for ComponentHandler {
     unsafe fn performEdit(&self, id: ParamID, value: ParamValue) -> tresult {
         // Seul le thread UI verrouille ce mutex : jamais de contention avec le thread audio.
         let _ = self.edits.lock().unwrap().push((id, value));
+        self.dirty.store(true, Ordering::Relaxed);
         kResultOk
     }
     unsafe fn endEdit(&self, _id: ParamID) -> tresult {
@@ -269,7 +273,9 @@ impl IComponentHandlerTrait for ComponentHandler {
     }
     unsafe fn restartComponent(&self, _flags: i32) -> tresult {
         // Changement de latence ou de bus après chargement : non suivi (la latence affichée
-        // reste celle du chargement).
+        // reste celle du chargement). Souvent un preset chargé dans l'interface : état à
+        // enregistrer.
+        self.dirty.store(true, Ordering::Relaxed);
         kResultOk
     }
 }

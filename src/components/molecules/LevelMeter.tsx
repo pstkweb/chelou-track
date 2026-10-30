@@ -4,8 +4,12 @@ import cn from '@/lib/cn';
 type LevelMeterProps = {
   /** Niveau 0-1, lu à chaque image (hors React). */
   get: () => number;
+  /** Horizontal (défaut) ou vertical (mixer). */
+  orient?: 'h' | 'v';
   /** Longueur en px, ou valeur CSS (`'100%'`). */
   length?: number | string;
+  /** Nombre de segments ; défaut : un tous les 4 px. */
+  segments?: number;
   thick?: number;
   dim?: boolean;
   className?: string;
@@ -28,13 +32,15 @@ function follow(b: Ballistics, raw: number, now: number): Ballistics {
 }
 
 /**
- * Vumètre segmenté horizontal animé par `requestAnimationFrame` (style écrit directement, aucun
+ * Vumètre segmenté (horizontal ou vertical) animé par `requestAnimationFrame` (style écrit directement, aucun
  * rendu React) : attaque immédiate, retombée lente, crête maintenue 700 ms.
  */
 export default function LevelMeter({
   get,
+  orient = 'h',
   length = 48,
   thick = 4,
+  segments,
   dim = false,
   className,
 }: LevelMeterProps) {
@@ -46,11 +52,12 @@ export default function LevelMeter({
     const ballistics = { level: 0, held: 0, heldAt: 0 };
     const tick = (now: number) => {
       const { level, held } = follow(ballistics, get(), now);
+      const side = orient === 'h' ? 'left' : 'bottom';
       if (cover.current) {
-        cover.current.style.left = `${level * 100}%`;
+        cover.current.style[side] = `${level * 100}%`;
       }
       if (peak.current) {
-        peak.current.style.left = `calc(${held * 100}% - 2px)`;
+        peak.current.style[side] = `calc(${held * 100}% - 2px)`;
         peak.current.style.opacity = held > 0.02 ? '1' : '0';
       }
       raf = requestAnimationFrame(tick);
@@ -58,15 +65,22 @@ export default function LevelMeter({
     raf = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(raf);
-  }, [get]);
+  }, [get, orient]);
 
-  const segments = typeof length === 'number' ? Math.max(4, Math.round(length / 4)) : 24;
+  const horizontal = orient === 'h';
+  const count = segments ?? (typeof length === 'number' ? Math.max(4, Math.round(length / 4)) : 24);
 
   return (
     <div
-      className={cn(['lvl', dim && 'lvl-dim', className])}
+      className={cn(['lvl', !horizontal && 'lvl-v', dim && 'lvl-dim', className])}
       aria-hidden="true"
-      style={{ width: length, height: thick, '--seg': `${100 / segments}%` } as React.CSSProperties}
+      style={
+        {
+          width: horizontal ? length : thick,
+          height: horizontal ? thick : length,
+          '--seg': `${100 / count}%`,
+        } as React.CSSProperties
+      }
     >
       <i ref={cover} className="lvl-cover" />
       <b ref={peak} className="lvl-peak" />

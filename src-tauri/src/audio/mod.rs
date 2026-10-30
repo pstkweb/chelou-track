@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chelou_audio_core::decode::{decode_stereo, resample};
+use chelou_audio_core::mix::MetronomeParams;
 use chelou_audio_core::player::LoadGeneration;
 use chelou_audio_core::plugins::PluginInfo;
 use chelou_audio_core::settings::{latency_ms, save_settings, AudioSettings, DuplexConfig};
@@ -156,10 +157,55 @@ pub fn backing_seek(state: State<'_, AppState>, ms: f64) -> Result<(), String> {
     Ok(())
 }
 
+/// Grille du métronome du track en cours (`None` : tempo inconnu) ; le clic est synthétisé par
+/// le moteur sur sa propre position (spec §5.5). Non persistée : dépend du track.
 #[tauri::command]
-pub fn backing_set_volume(state: State<'_, AppState>, gain: f32) -> Result<(), String> {
-    engine(&state)?.backing().set_gain(gain);
+pub fn backing_set_metronome(
+    state: State<'_, AppState>,
+    params: Option<MetronomeParamsDto>,
+) -> Result<(), String> {
+    engine(&state)?
+        .mix()
+        .set_metronome(params.map(|p| MetronomeParams {
+            bpm: p.bpm,
+            anchor_ms: p.anchor_ms,
+            beats_per_bar: p.beats_per_bar,
+        }));
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetronomeParamsDto {
+    bpm: f64,
+    anchor_ms: f64,
+    beats_per_bar: u32,
+}
+
+/// Voie Backing du mixer (0-100, 80 = 0 dB) — appliquée puis persistée.
+#[tauri::command]
+pub fn mix_set_backing(state: State<'_, AppState>, fader: f32, muted: bool) -> Result<(), String> {
+    if let Some(engine) = state.audio.as_ref() {
+        engine.mix().set_backing(fader, muted);
+    }
+    update_settings(&state, |s| {
+        s.backing_fader = fader.clamp(0.0, 100.0);
+        s.backing_muted = muted;
+    })
+    .map(drop)
+}
+
+/// Voie Clic du mixer ; coupée = métronome éteint.
+#[tauri::command]
+pub fn mix_set_click(state: State<'_, AppState>, fader: f32, muted: bool) -> Result<(), String> {
+    if let Some(engine) = state.audio.as_ref() {
+        engine.mix().set_click(fader, muted);
+    }
+    update_settings(&state, |s| {
+        s.click_fader = fader.clamp(0.0, 100.0);
+        s.click_muted = muted;
+    })
+    .map(drop)
 }
 
 /// Pousse le statut dans `channel` : toutes les 16 ms pendant la lecture, et à chaque
@@ -225,7 +271,7 @@ fn wanted(settings: &AudioSettings) -> Option<DuplexConfig> {
         .flatten()
 }
 
-/// Démarre le moteur en sortie seule (rapide) avec le volume et le mute persistés ; la carte
+/// Démarre le moteur en sortie seule (rapide) avec les volumes et mutes persistés ; la carte
 /// choisie est ouverte ensuite par `open_saved_card`, hors du lancement de la fenêtre.
 pub fn start_engine(settings: &AudioSettings) -> Option<Engine> {
     let engine = chelou_audio_engine::start(None)
@@ -235,6 +281,12 @@ pub fn start_engine(settings: &AudioSettings) -> Option<Engine> {
     guitar.set_fader(settings.guitar_fader);
     guitar.set_muted(settings.guitar_muted);
     drop(guitar);
+    engine
+        .mix()
+        .set_backing(settings.backing_fader, settings.backing_muted);
+    engine
+        .mix()
+        .set_click(settings.click_fader, settings.click_muted);
     Some(engine)
 }
 
@@ -360,6 +412,9 @@ pub struct AudioStatus {
     xruns: u64,
     input_level: f32,
     output_level: f32,
+    /// Crêtes des voies Backing et Clic depuis le statut précédent (vumètres du mixer).
+    backing_level: f32,
+    click_level: f32,
     guitar_fader: f32,
     guitar_muted: bool,
     device_name: Option<String>,
@@ -380,6 +435,8 @@ fn audio_status_now(state: &AppState) -> AudioStatus {
         xruns: 0,
         input_level: 0.0,
         output_level: 0.0,
+        backing_level: 0.0,
+        click_level: 0.0,
         guitar_fader: settings.guitar_fader,
         guitar_muted: settings.guitar_muted,
         device_name: settings.duplex.as_ref().map(|d| d.input_device.clone()),
@@ -400,6 +457,9 @@ fn audio_status_now(state: &AppState) -> AudioStatus {
     let levels = engine.guitar().levels();
     status.input_level = levels.input;
     status.output_level = levels.output;
+    let mix = engine.mix().levels();
+    status.backing_level = mix.backing;
+    status.click_level = mix.click;
     (status.state, status.error) = match engine.state() {
         EngineState::Running => ("running", None),
         EngineState::Error(e) => ("error", Some(e)),

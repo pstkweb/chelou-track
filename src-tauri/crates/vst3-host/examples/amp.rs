@@ -63,7 +63,11 @@ fn main() -> anyhow::Result<()> {
             use windows::Win32::UI::HiDpi::*;
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
-        Some(Editor::open(&plugin, &info.name)?)
+        Some(Editor::open(
+            &plugin,
+            &format!("{} — Chelou Track", info.name),
+            true,
+        )?)
     } else {
         None
     };

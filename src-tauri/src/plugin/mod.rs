@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
+use chelou_audio_core::plugin_state::{load_plugin_state, save_plugin_state};
 use chelou_audio_core::plugins::{binary_path, standard_vst3_folders, PluginInfo};
 use chelou_audio_engine::Engine;
 use chelou_vst3_host::{Editor, Vst3Plugin};
@@ -66,7 +67,12 @@ fn unload_now(app: &AppHandle) -> Option<Loaded> {
     Some(loaded)
 }
 
-fn drop_loaded(loaded: Loaded) {
+/// Libère un plugin retiré de la voie (cf. `unload_now`), après avoir enregistré son son s'il a
+/// changé depuis le dernier enregistrement : rien de ce que l'utilisateur a réglé n'est perdu.
+fn drop_loaded(app: &AppHandle, loaded: Loaded) {
+    if loaded.plugin.take_dirty() {
+        save_now(app, &loaded);
+    }
     let Loaded {
         editor,
         plugin,
@@ -112,7 +118,7 @@ fn load_now(app: &AppHandle, info: PluginInfo, state: Option<&[u8]>) -> anyhow::
                     })
                 });
                 if let Some(old) = old {
-                    drop_loaded(old);
+                    drop_loaded(app, old);
                 }
                 return Ok(latency);
             }
@@ -129,10 +135,22 @@ fn set_status(app: &AppHandle, change: impl FnOnce(&mut PluginStatus)) {
     change(&mut app.state::<AppState>().plugin.lock().unwrap());
 }
 
+/// Charge `info` avec son dernier son enregistré, s'il est à lui. Le plugin en place enregistre
+/// d'abord ses réglages récents : recharger le même plugin retrouve exactement son son.
 async fn load(app: &AppHandle, info: PluginInfo) -> Result<u32, String> {
-    let latency = on_main(app, move |app| load_now(app, info, None))
-        .await?
-        .map_err(public_err)?;
+    let latency = on_main(app, move |app| {
+        LOADED.with(|l| {
+            if let Some(loaded) = l.borrow().as_ref() {
+                if loaded.plugin.take_dirty() {
+                    save_now(app, loaded);
+                }
+            }
+        });
+        let state = load_plugin_state(&app.state::<AppState>().plugin_state_path, &info.id);
+        load_now(app, info, state.as_deref())
+    })
+    .await?
+    .map_err(public_err)?;
     Ok(latency)
 }
 
@@ -192,10 +210,16 @@ pub async fn reload_for_new_rate(app: &AppHandle) {
         let state = old.plugin.save_state();
         let was_open = old.editor.as_ref().is_some_and(Editor::is_open);
         let info = old.info.clone();
-        drop_loaded(old);
+        // Ce son est aussi celui à retrouver au prochain lancement.
+        let path = &app.state::<AppState>().plugin_state_path;
+        if let Err(e) = save_plugin_state(path, &info.id, &state) {
+            eprintln!("vst3 : son de {} non enregistré : {e:#}", info.name);
+        }
+        old.plugin.take_dirty();
+        drop_loaded(app, old);
         let result = load_now(app, info.clone(), Some(&state));
         if was_open && result.is_ok() {
-            let _ = open_editor_now();
+            let _ = open_editor_now(app);
         }
         Some((info, result))
     })
@@ -217,11 +241,63 @@ pub async fn reload_for_new_rate(app: &AppHandle) {
 /// Fin de l'app (thread principal) : démontage ordonné avant la sortie du processus.
 pub fn shutdown(app: &AppHandle) {
     if let Some(loaded) = unload_now(app) {
-        drop_loaded(loaded);
+        save_now(app, &loaded);
+        loaded.plugin.take_dirty();
+        drop_loaded(app, loaded);
     }
 }
 
-fn open_editor_now() -> anyhow::Result<()> {
+/// Vérification de l'état du plugin : son est-il à enregistrer ?
+const STATE_SAVE_PERIOD: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Thread principal : enregistre le son du plugin chargé (spec §5.6 : survit à un plantage).
+fn save_now(app: &AppHandle, loaded: &Loaded) {
+    let path = &app.state::<AppState>().plugin_state_path;
+    if let Err(e) = save_plugin_state(path, &loaded.info.id, &loaded.plugin.save_state()) {
+        eprintln!("vst3 : son de {} non enregistré : {e:#}", loaded.info.name);
+    }
+}
+
+/// Toutes les `STATE_SAVE_PERIOD`, sur le thread principal : enregistre le son du plugin si un
+/// réglage a changé ou si son interface vient d'être fermée.
+pub fn start_state_saver(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(STATE_SAVE_PERIOD).await;
+            let saved = on_main(&app, |app| {
+                LOADED.with(|l| {
+                    let mut l = l.borrow_mut();
+                    let Some(loaded) = l.as_mut() else {
+                        return;
+                    };
+                    let closed = loaded.editor.as_ref().is_some_and(|e| !e.is_open());
+                    if closed {
+                        loaded.editor = None;
+                    }
+                    if loaded.plugin.take_dirty() || closed {
+                        save_now(app, loaded);
+                    }
+                })
+            })
+            .await;
+            if saved.is_err() {
+                return; // boucle d'évènements arrêtée : l'app se ferme
+            }
+        }
+    });
+}
+
+/// Thème de l'app (celui de sa fenêtre, qui suit le système) : sombre sauf thème clair connu.
+fn dark_theme(app: &AppHandle) -> bool {
+    app.webview_windows()
+        .values()
+        .next()
+        .and_then(|w| w.theme().ok())
+        != Some(tauri::Theme::Light)
+}
+
+fn open_editor_now(app: &AppHandle) -> anyhow::Result<()> {
+    let dark = dark_theme(app);
     LOADED.with(|l| {
         let mut l = l.borrow_mut();
         let loaded = l
@@ -229,7 +305,10 @@ fn open_editor_now() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("Aucun plugin chargé"))?;
         match &loaded.editor {
             Some(editor) if editor.is_open() => editor.focus(),
-            _ => loaded.editor = Some(Editor::open(&loaded.plugin, &loaded.info.name)?),
+            _ => {
+                let title = format!("{} — Chelou Track", loaded.info.name);
+                loaded.editor = Some(Editor::open(&loaded.plugin, &title, dark)?);
+            }
         }
         Ok(())
     })
@@ -367,7 +446,7 @@ pub async fn plugin_load(app: AppHandle, id: String) -> Result<PluginInfo, Strin
 pub async fn plugin_unload(app: AppHandle) -> Result<(), String> {
     on_main(&app, |app| {
         if let Some(loaded) = unload_now(app) {
-            drop_loaded(loaded);
+            drop_loaded(app, loaded);
         }
     })
     .await?;
@@ -378,7 +457,5 @@ pub async fn plugin_unload(app: AppHandle) -> Result<(), String> {
 /// Ouvre l'interface du plugin, ou la ramène au premier plan si elle est déjà ouverte.
 #[tauri::command]
 pub async fn plugin_open_editor(app: AppHandle) -> Result<(), String> {
-    on_main(&app, |_| open_editor_now())
-        .await?
-        .map_err(public_err)
+    on_main(&app, open_editor_now).await?.map_err(public_err)
 }
