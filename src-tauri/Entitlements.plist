@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Le build macOS est signé avec le runtime renforcé (défaut de Tauri) : sans ces deux
+       droits, macOS refuse l'entrée de la carte son (guitare) et le chargement des plugins VST3
+       d'autres éditeurs (validation des bibliothèques), cf. spec §6 risque 5. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
