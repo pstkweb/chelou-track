@@ -52,7 +52,7 @@ npx tsc --noEmit
 - **AlphaTab** (`@coderline/alphatab@1.8.4`) pour le rendu et la synchro des tablatures GuitarPro.
 - **PDF.js** (`pdfjs-dist`) pour la section documents.
 - **Moteur audio natif Rust** (`cpal` + `symphonia` + `rubato`, sous-crates `chelou-audio-core`/`chelou-audio-engine`) pour la lecture des backing tracks : téléchargés et décodés en entier avant lecture, lus à vitesse 1, détection du silence de tête au décodage. Sans carte configurée : sortie par défaut du système ; carte choisie : duplex (ASIO/WASAPI sur Windows, CoreAudio, ALSA) avec la guitare passée dans un plugin d'ampli VST3 (sinon en son direct).
-- **Hôte VST3** (`vst3` + `libloading`, sous-crate `chelou-vst3-host`) : un seul plugin sur la voie guitare, chargé sur le thread principal, interface native dans une fenêtre Win32 (Windows seulement pour l'instant). Son réglé dans le plugin mémorisé (`audio/plugin-state.bin`).
+- **Hôte VST3** (`vst3` + `libloading`, sous-crate `chelou-vst3-host`) : un seul plugin sur la voie guitare, chargé sur le thread principal, interface native dans une fenêtre Win32 (Windows) ou `NSWindow` (macOS ; pas encore sur Linux). Son réglé dans le plugin mémorisé (`audio/plugin-state.bin`).
 - **Métronome natif** : clic synthétisé par le moteur sur la position du lecteur (exact à l'échantillon) ; mixer à 3 voies (Backing, Guitare, Clic) dans la vue tablature, réglages persistés. Plus d'`AudioContext` côté WebView.
 - **reqwest** côté Rust pour les appels aux providers + streaming Range.
 - **keyring-core** pour le token du provider connecté (store par OS — `keyring-dpapi-store` maison sur Windows, Keychain/Secret Service natifs ailleurs).
@@ -95,6 +95,7 @@ Le WebView ne touche jamais le token ni une URL de provider brute. Tout transite
 | `src/media_server.rs` | **Linux uniquement.** Serveur HTTP loopback `127.0.0.1:47812` pour `<video>` (GStreamer ne sait pas lire un schéma custom). Sensible : exige le jeton de session `?t=` (`AppState::media_token`, servi au WebView par `get_media_token`) et ne donne le CORS qu'à l'origine de l'app — cf. ARCHITECTURE.md §4 |
 | `src/manifest/mod.rs` | Stub : `pub use chelou_manifest::*;` — re-exporte le sous-crate |
 | `src/audio/mod.rs` | Commandes `backing_*` (load/unload/play/pause/seek, `backing_set_metronome` : grille du clic) et `backing_status` (statut poussé au WebView par `tauri::ipc::Channel`, ~60 Hz pendant la lecture) ; carte son : `audio_devices`, `audio_settings`, `audio_configure`, `audio_set_enabled`, `guitar_set_fader`/`guitar_set_muted`, `audio_reset_xruns`, `audio_status` (~30 Hz, permanent, crêtes des 4 voies) ; mixer : `mix_set_backing`/`mix_set_click` (persistés) ; réglages lus au démarrage depuis `audio/settings.json` (hors de l'app dir, où chaque `.json` est un manifeste) — cf. ARCHITECTURE.md §7, §9 |
+| `src/titlebar.rs` | **macOS uniquement.** Centre les feux tricolores natifs dans la barre de titre de l'app (38 px) au démarrage et à chaque redimensionnement — tao ne gère pas l'ordonnée sur macOS 26+ |
 | `src/plugin/mod.rs` | Plugin d'ampli VST3 : instance et interface vivent sur le **thread principal** (`thread_local!`, `on_main`) ; commandes `plugin_folders`/`plugin_add_folder`/`plugin_remove_folder`/`plugin_scan`/`plugin_load` (par identifiant du dernier scan, jamais par chemin)/`plugin_unload`/`plugin_open_editor` ; rechargement au démarrage et après un changement de fréquence ; démontage ordonné à la sortie (`RunEvent::Exit`) ; `probe_main` = mode `--vst3-probe <bundle>` du binaire (`main.rs`) |
 
 **`src-tauri/crates/manifest/` (sous-crate `chelou-manifest` — dépendances : serde + anyhow uniquement)**
@@ -141,14 +142,14 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 
 `Engine::install_fx(fx, rate)` installe le plugin dans la voie guitare (rend l'ancien, libéré par l'appelant ; refusé si les flux tournent entre-temps à une autre fréquence) ; des flux rouverts à une autre fréquence retirent l'effet (`Engine::fx_cleared_at`), que l'app recharge.
 
-**`src-tauri/crates/vst3-host/`** (sous-crate `chelou-vst3-host` — `vst3`, `libloading`, `windows` (Win32) ; pas testable sans vrais plugins, hors de la commande de test canonique ; `cargo test -p chelou-vst3-host` en local pour le scan)
+**`src-tauri/crates/vst3-host/`** (sous-crate `chelou-vst3-host` — `vst3`, `libloading`, `windows` (Win32), `objc2-app-kit` (macOS) ; pas testable sans vrais plugins, hors de la commande de test canonique ; `cargo test -p chelou-vst3-host` en local pour le scan)
 
 | Fichier | Rôle |
 |---|---|
 | `src/module.rs` | Chargement d'un module par OS (`InitDll` Windows, `ModuleEntry` Linux, `bundleEntry` macOS — non testé), classes de la fabrique, `probe` |
 | `src/plugin.rs` | `Vst3Plugin` (thread principal ; contrôleur séparé + `IConnectionPoint`, bus mono sinon stéréo, préparation à la fréquence réelle, pré-chauffage, état, démontage ordonné — fuite volontaire si la partie temps réel vit encore) + `RtProc` (`GuitarFx` : éditions de l'interface → `IParameterChanges` pré-alloué) |
 | `src/host_objects.rs` | Objets COM fournis au plugin (`IHostApplication` qui fabrique `IMessage`/`IAttributeList`, flux mémoire, `IComponentHandler`, changements de paramètres) |
-| `src/editor.rs` | `Editor` : interface du plugin dans une fenêtre Win32 de premier niveau (pas de boucle de messages : celle de Tauri), vue détachée avant destruction ; erreur explicite hors Windows |
+| `src/editor.rs` | `Editor` : interface du plugin dans une fenêtre de premier niveau — Win32 (`HWND`) ou macOS (`NSWindow`, fermée = masquée jusqu'au détachement de la vue) ; pas de boucle d'évènements : celle de Tauri ; vue détachée avant destruction ; erreur explicite sur Linux |
 | `src/scan.rs` | `scan` : `moduleinfo.json`, sinon `run_probe` (processus enfant `--vst3-probe`, tué après 15 s) |
 
 **`src-tauri/crates/keyring-dpapi-store/`** (sous-crate `keyring-dpapi-store` — dépendances : `keyring-core` + `windows-dpapi`, zéro dépendance Tauri, Windows uniquement)
@@ -168,6 +169,7 @@ Tous les providers (pCloud, Dropbox, Google Drive) vivent comme modules dans ce 
 | `lib/serial-queue.ts` | `createSerialQueue` : file d'exécution séquentielle (testée vitest) — ordonne chargements et déchargements du moteur entre toutes les vues |
 | `lib/fader.ts` | `faderDb` : position de fader (80 = 0 dB) en dB affichables (testé vitest) |
 | `contexts/AudioEngineContext.tsx` | `useAudioEngine()` : abonnement unique au statut de la carte (crêtes gardées hors React pour les vumètres), réglages, inventaire des cartes, actions, ouverture du tiroir de réglages |
+| `components/organisms/TitleBar.tsx` | Barre de titre sans décorations : `WindowControls` à droite (Windows/Linux) ; sur macOS feux tricolores natifs superposés à gauche (`tauri.macos.conf.json`, `titleBarStyle: "Overlay"`) et centrés verticalement par `src-tauri/src/titlebar.rs`, place réservée hors plein écran |
 | `components/organisms/GuitarControl.tsx` | Barre de titre : état de la carte (« Configurer l'audio », « Audio arrêté », « Audio : erreur ») ou mute + vumètre guitare + popover (plugin et son interface, volume) |
 | `components/templates/AudioSettings.tsx` | Tiroir des réglages audio : état de la carte, pilote, carte (WASAPI : entrée et sortie séparées), entrée guitare, sortie, fréquence, buffer, latence, coupures |
 | `components/molecules/LevelMeter.tsx` | Vumètre animé par `requestAnimationFrame`, hors rendu React |

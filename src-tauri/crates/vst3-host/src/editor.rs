@@ -1,24 +1,29 @@
 // Interface native du plugin dans une fenêtre de premier niveau (spec §5.6), créée et détruite
-// sur le thread principal. Barre de titre Windows standard, aux couleurs de l'app : icône de
-// l'exécutable, barre sombre en thème sombre. Pas de boucle de messages ici : celle de l'app (Tauri) pompe déjà les
-// messages Win32 de ce thread.
+// sur le thread principal. Windows : barre de titre standard aux couleurs de l'app (icône de
+// l'exécutable, barre sombre en thème sombre). macOS : `NSWindow` dont la vue de contenu accueille
+// la `NSView` du plugin. Pas de boucle d'évènements ici : celle de l'app (Tauri) pompe déjà les
+// messages Win32 / évènements AppKit de ce thread.
 #![allow(non_snake_case)]
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use crate::Vst3Plugin;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use anyhow::Result;
 
 /// Fenêtre de l'éditeur. **Thread principal uniquement** ; à fermer avant de libérer le plugin.
 pub struct Editor {
     #[cfg(windows)]
     hwnd: windows::Win32::Foundation::HWND,
+    #[cfg(target_os = "macos")]
+    inner: mac::Inner,
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl Editor {
     pub fn open(_plugin: &Vst3Plugin, _title: &str, _dark: bool) -> Result<Editor> {
-        anyhow::bail!("L'interface du plugin n'est disponible que sur Windows pour l'instant")
+        anyhow::bail!(
+            "L'interface du plugin n'est disponible que sur Windows et macOS pour l'instant"
+        )
     }
 
     pub fn is_open(&self) -> bool {
@@ -30,6 +35,8 @@ impl Editor {
     pub fn close(self) {}
 }
 
+#[cfg(target_os = "macos")]
+pub use mac::pump_messages;
 #[cfg(windows)]
 pub use win::pump_messages;
 
@@ -311,6 +318,188 @@ mod win {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use anyhow::{anyhow, bail, Result};
+    use objc2::rc::{Retained, Weak};
+    use objc2::{MainThreadMarker, MainThreadOnly};
+    use objc2_app_kit::{
+        NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+        NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSEventMask, NSWindow,
+        NSWindowStyleMask,
+    };
+    use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString};
+    use vst3::Steinberg::Vst::IEditControllerTrait;
+    use vst3::Steinberg::*;
+    use vst3::{Class, ComPtr, ComRef, ComWrapper};
+
+    use super::Editor;
+    use crate::Vst3Plugin;
+
+    fn main_thread() -> Result<MainThreadMarker> {
+        MainThreadMarker::new()
+            .ok_or_else(|| anyhow!("Interface du plugin hors du thread principal"))
+    }
+
+    fn content_size(r: &ViewRect) -> NSSize {
+        NSSize::new((r.right - r.left) as f64, (r.bottom - r.top) as f64)
+    }
+
+    /// `IPlugFrame` : le plugin demande un redimensionnement (tailles en points).
+    struct PlugFrame {
+        window: Weak<NSWindow>,
+    }
+
+    impl Class for PlugFrame {
+        type Interfaces = (IPlugFrame,);
+    }
+
+    impl IPlugFrameTrait for PlugFrame {
+        unsafe fn resizeView(&self, view: *mut IPlugView, size: *mut ViewRect) -> tresult {
+            if size.is_null() {
+                return kInvalidArgument;
+            }
+            if let Some(window) = self.window.load() {
+                window.setContentSize(content_size(&*size));
+            }
+            if let Some(v) = ComRef::<IPlugView>::from_raw(view) {
+                v.onSize(size);
+            }
+            kResultOk
+        }
+    }
+
+    /// Fenêtre et vue attachée. Fermée par l'utilisateur, la fenêtre est seulement masquée
+    /// (`releasedWhenClosed = false`) : la vue reste attachée à une `NSView` vivante jusqu'à ce que
+    /// l'`Editor` soit libéré, qui la détache **avant** de libérer la fenêtre.
+    pub struct Inner {
+        window: Retained<NSWindow>,
+        view: ComPtr<IPlugView>,
+        /// Gardé vivant tant que la vue peut l'appeler.
+        _frame: ComWrapper<PlugFrame>,
+    }
+
+    impl Editor {
+        /// `dark` : thème sombre de l'app (fenêtre en apparence sombre).
+        pub fn open(plugin: &Vst3Plugin, title: &str, dark: bool) -> Result<Editor> {
+            let mtm = main_thread()?;
+            // SAFETY: API IPlugView + AppKit, sur le thread principal (celui du plugin).
+            unsafe {
+                let view_raw = plugin.controller().createView(Vst::ViewType::kEditor);
+                let view = ComPtr::<IPlugView>::from_raw(view_raw)
+                    .ok_or_else(|| anyhow!("Ce plugin n'a pas d'interface"))?;
+                if view.isPlatformTypeSupported(kPlatformTypeNSView) != kResultTrue {
+                    bail!("Interface du plugin non prise en charge (NSView)");
+                }
+                let mut rect: ViewRect = std::mem::zeroed();
+                view.getSize(&mut rect);
+
+                let style = NSWindowStyleMask::Titled
+                    | NSWindowStyleMask::Closable
+                    | NSWindowStyleMask::Miniaturizable;
+                let window = NSWindow::initWithContentRect_styleMask_backing_defer(
+                    NSWindow::alloc(mtm),
+                    NSRect::new(NSPoint::new(0.0, 0.0), content_size(&rect)),
+                    style,
+                    NSBackingStoreType::Buffered,
+                    false,
+                );
+                window.setReleasedWhenClosed(false);
+                window.setTitle(&NSString::from_str(title));
+                let appearance = if dark {
+                    NSAppearanceNameDarkAqua
+                } else {
+                    NSAppearanceNameAqua
+                };
+                window.setAppearance(NSAppearance::appearanceNamed(appearance).as_deref());
+                let content = window
+                    .contentView()
+                    .ok_or_else(|| anyhow!("Fenêtre de l'interface sans contenu"))?;
+
+                let frame = ComWrapper::new(PlugFrame {
+                    window: Weak::from_retained(&window),
+                });
+                view.setFrame(frame.as_com_ref::<IPlugFrame>().unwrap().as_ptr());
+                if view.attached(Retained::as_ptr(&content) as *mut _, kPlatformTypeNSView)
+                    != kResultOk
+                {
+                    view.setFrame(std::ptr::null_mut());
+                    window.close();
+                    bail!("Impossible d'afficher l'interface du plugin");
+                }
+                window.center();
+                window.makeKeyAndOrderFront(None);
+                Ok(Editor {
+                    inner: Inner {
+                        window,
+                        view,
+                        _frame: frame,
+                    },
+                })
+            }
+        }
+
+        /// Ouverte = visible ou dans le Dock ; fermée par l'utilisateur = masquée.
+        pub fn is_open(&self) -> bool {
+            let w = &self.inner.window;
+            w.isVisible() || w.isMiniaturized()
+        }
+
+        /// Ramène la fenêtre au premier plan.
+        pub fn focus(&self) {
+            let w = &self.inner.window;
+            if w.isMiniaturized() {
+                w.deminiaturize(None);
+            }
+            w.makeKeyAndOrderFront(None);
+        }
+
+        pub fn close(self) {}
+    }
+
+    impl Drop for Editor {
+        fn drop(&mut self) {
+            let inner = &self.inner;
+            // SAFETY: vue attachée par `Editor::open`, sur ce thread ; détachée avant la fenêtre.
+            unsafe {
+                inner.view.removed();
+                inner.view.setFrame(std::ptr::null_mut());
+            }
+            if inner.window.isVisible() || inner.window.isMiniaturized() {
+                inner.window.close();
+            }
+        }
+    }
+
+    /// Traite les évènements AppKit en attente (pour les exemples ; l'app a la boucle de Tauri).
+    pub fn pump_messages() {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        static LAUNCHED: std::sync::Once = std::sync::Once::new();
+        LAUNCHED.call_once(|| {
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            app.finishLaunching();
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+        });
+        loop {
+            // SAFETY: boucle d'évènements standard du thread principal.
+            let event = unsafe {
+                app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                    NSEventMask::Any,
+                    Some(&NSDate::distantPast()),
+                    NSDefaultRunLoopMode,
+                    true,
+                )
+            };
+            let Some(event) = event else { break };
+            app.sendEvent(&event);
         }
     }
 }

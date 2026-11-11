@@ -7,6 +7,8 @@ mod media_server;
 mod plugin;
 mod providers;
 mod stream;
+#[cfg(target_os = "macos")]
+mod titlebar;
 
 use commands::AppState;
 use std::collections::HashMap;
@@ -43,6 +45,11 @@ pub fn run() {
             stream::handle(app, request, responder);
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            for window in app.webview_windows().values() {
+                titlebar::position_traffic_lights(window);
+            }
+
             let app_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_dir)?;
 
@@ -138,6 +145,18 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event:
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. },
+                ..
+            } = &event
+            {
+                if let Some(window) = app.get_webview_window(label) {
+                    titlebar::position_traffic_lights(&window);
+                }
+            }
             // Le plugin doit être démonté (partie temps réel retirée de la voie, éditeur fermé)
             // avant la sortie du processus : sa DLL ne doit pas disparaître sous le callback.
             if let tauri::RunEvent::Exit = event {

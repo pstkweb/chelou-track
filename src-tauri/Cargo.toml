@@ -44,6 +44,8 @@ keyring-dpapi-store = { path = "crates/keyring-dpapi-store" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1.0.1", features = ["keychain"] }
+objc2-app-kit    = "0.3"
+objc2-foundation = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "1.0.0", features = ["crypto-rust"] }

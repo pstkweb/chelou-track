@@ -1,6 +1,6 @@
 //! Vérification manuelle d'un plugin d'ampli sur la voie guitare :
 //! `cargo run --release -p chelou-vst3-host --example amp -- --plugin "<bundle.vst3>" --device "Focusrite USB ASIO" --input 2`
-//! Options : `--host asio`, `--rate 48000`, `--buffer 128`, `--seconds 60`, `--editor` (Windows :
+//! Options : `--host asio`, `--rate 48000`, `--buffer 128`, `--seconds 60`, `--editor` (Windows, macOS :
 //! ouvre l'interface du plugin ; la fermer termine l'exemple). Le plugin est chargé
 //! sur le thread principal (comme dans l'app) ; imprime chaque seconde l'état, les crêtes et les
 //! coupures.
@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(editor) = &editor {
             // Pompe les messages de la fenêtre pendant une seconde ; fermée → fin.
             for _ in 0..100 {
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "macos"))]
                 chelou_vst3_host::editor::pump_messages();
                 std::thread::sleep(Duration::from_millis(10));
             }
